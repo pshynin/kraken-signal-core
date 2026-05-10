@@ -137,10 +137,25 @@ def main(dry_run: bool = False) -> int:
         filter_result.pass_rate * 100,
     )
 
+    # ── Stage 5: Scoring engine ────────────────────────────────────────────────
+    from scanner.scoring import run_scoring_engine
+
+    log.info("Stage 5 — scoring %d assets", filter_result.passed_count)
+    scoring_result = run_scoring_engine(filter_result)
+
+    log.info(
+        "Stage 5 complete: clean=%d ugly=%d watchlist=%d",
+        scoring_result.clean_count,
+        scoring_result.ugly_count,
+        len(scoring_result.watchlist),
+    )
+
     # ── Remaining stages not yet implemented ──────────────────────────────────
     log.warning(
-        "Stages 5–10 not yet implemented (PRs 8–11). %d assets ready for scoring engine.",
-        filter_result.passed_count,
+        "Stages 6–10 not yet implemented (PRs 9–11). "
+        "%d clean + %d ugly candidates ready for selector.",
+        scoring_result.clean_count,
+        scoring_result.ugly_count,
     )
     return 0
 
