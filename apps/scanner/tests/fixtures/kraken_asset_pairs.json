@@ -1,0 +1,133 @@
+{
+  "XXBTZUSD": {
+    "altname": "XBTUSD",
+    "wsname": "XBT/USD",
+    "aclass_base": "currency",
+    "base": "XXBT",
+    "aclass_quote": "currency",
+    "quote": "ZUSD",
+    "pair_decimals": 1,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "0.0001",
+    "costmin": "0.5",
+    "status": "online"
+  },
+
+  "XETHZUSD": {
+    "altname": "ETHUSD",
+    "wsname": "ETH/USD",
+    "aclass_base": "currency",
+    "base": "XETH",
+    "aclass_quote": "currency",
+    "quote": "ZUSD",
+    "pair_decimals": 2,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "0.005",
+    "status": "online"
+  },
+
+  "SOLUSD": {
+    "altname": "SOLUSD",
+    "wsname": "SOL/USD",
+    "aclass_base": "currency",
+    "base": "SOL",
+    "aclass_quote": "currency",
+    "quote": "ZUSD",
+    "pair_decimals": 2,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "0.5",
+    "status": "online"
+  },
+
+  "AVAXUSD": {
+    "altname": "AVAXUSD",
+    "wsname": "AVAX/USD",
+    "aclass_base": "currency",
+    "base": "AVAX",
+    "aclass_quote": "currency",
+    "quote": "ZUSD",
+    "pair_decimals": 2,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "1",
+    "status": "online"
+  },
+
+  "USDTZUSD": {
+    "_reason_excluded": "stablecoin base",
+    "altname": "USDTUSD",
+    "wsname": "USDT/USD",
+    "aclass_base": "currency",
+    "base": "USDT",
+    "aclass_quote": "currency",
+    "quote": "ZUSD",
+    "pair_decimals": 5,
+    "lot_decimals": 2,
+    "lot_multiplier": 1,
+    "ordermin": "5",
+    "status": "online"
+  },
+
+  "XXBTZUSD.d": {
+    "_reason_excluded": "dark pool (.d suffix)",
+    "altname": "XBTUSD.d",
+    "wsname": "XBT/USD",
+    "aclass_base": "currency",
+    "base": "XXBT",
+    "aclass_quote": "currency",
+    "quote": "ZUSD",
+    "pair_decimals": 1,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "0.0001",
+    "status": "online"
+  },
+
+  "SOLUSDT": {
+    "_reason_excluded": "USDT quote (not ZUSD)",
+    "altname": "SOLUSDT",
+    "wsname": "SOL/USDT",
+    "aclass_base": "currency",
+    "base": "SOL",
+    "aclass_quote": "currency",
+    "quote": "USDT",
+    "pair_decimals": 3,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "0.5",
+    "status": "online"
+  },
+
+  "XXBTZEUR": {
+    "_reason_excluded": "EUR quote (not ZUSD)",
+    "altname": "XBTEUR",
+    "wsname": "XBT/EUR",
+    "aclass_base": "currency",
+    "base": "XXBT",
+    "aclass_quote": "currency",
+    "quote": "ZEUR",
+    "pair_decimals": 1,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "0.0001",
+    "status": "online"
+  },
+
+  "LTCUSD": {
+    "_reason_excluded": "status != online",
+    "altname": "LTCUSD",
+    "wsname": "LTC/USD",
+    "aclass_base": "currency",
+    "base": "XLTC",
+    "aclass_quote": "currency",
+    "quote": "ZUSD",
+    "pair_decimals": 2,
+    "lot_decimals": 8,
+    "lot_multiplier": 1,
+    "ordermin": "0.1",
+    "status": "offline"
+  }
+}
