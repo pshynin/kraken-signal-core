@@ -94,11 +94,34 @@ def main(dry_run: bool = False) -> int:
         fetch_result.total_count,
     )
 
+    # ── Stage 3: Indicator engine ──────────────────────────────────────────────
+    from scanner.indicators import run_indicator_engine
+
+    log.info("Stage 3 — computing technical indicators")
+    indicator_result = run_indicator_engine(fetch_result.successful)
+
+    if indicator_result.success_count == 0:
+        log.error("Stage 3 failed: no assets produced indicator snapshots")
+        return 1
+
+    if indicator_result.failed_symbols:
+        log.warning(
+            "Stage 3 partial: %d asset(s) failed indicator computation — %s",
+            indicator_result.failure_count,
+            indicator_result.failed_symbols,
+        )
+
+    log.info(
+        "Stage 3 complete: %d/%d assets have indicators ready for scoring",
+        indicator_result.success_count,
+        indicator_result.total_count,
+    )
+
     # ── Remaining stages not yet implemented ──────────────────────────────────
     log.warning(
-        "Stages 3–10 not yet implemented (PRs 6–11). "
-        "%d asset OHLCV bundles ready for indicator engine.",
-        fetch_result.success_count,
+        "Stages 4–10 not yet implemented (PRs 7–11). "
+        "%d asset indicator bundles ready for hard filter.",
+        indicator_result.success_count,
     )
     return 0
 
