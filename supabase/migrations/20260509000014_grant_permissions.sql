@@ -7,24 +7,32 @@
 -- anon         : read-only,  respects RLS — used by browser client (anon key)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
+-- Grants are wrapped in DO blocks so this migration is safe to run in both
+-- Supabase (where these roles exist) and plain Postgres CI containers (where
+-- they do not). Missing roles are silently skipped.
 
--- service_role: full read/write on all current and future tables
-GRANT ALL ON ALL TABLES    IN SCHEMA public TO service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
-GRANT ALL ON ALL ROUTINES  IN SCHEMA public TO service_role;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT USAGE ON SCHEMA public TO service_role;
+    GRANT ALL ON ALL TABLES    IN SCHEMA public TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+    GRANT ALL ON ALL ROUTINES  IN SCHEMA public TO service_role;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO service_role;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+  END IF;
 
--- authenticated: full read/write (RLS policies control actual access)
-GRANT ALL ON ALL TABLES    IN SCHEMA public TO authenticated;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    GRANT USAGE ON SCHEMA public TO authenticated;
+    GRANT ALL ON ALL TABLES    IN SCHEMA public TO authenticated;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated;
+  END IF;
 
--- anon: read-only (RLS policies control actual access)
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
-
--- Ensure future tables created in this schema inherit the same grants
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT ALL ON TABLES    TO service_role, authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT ALL ON SEQUENCES TO service_role, authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT ON TABLES TO anon;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    GRANT USAGE ON SCHEMA public TO anon;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO anon;
+  END IF;
+END $$;
