@@ -285,3 +285,72 @@ class FilterResult:
     @property
     def pass_rate(self) -> float:
         return self.passed_count / self.total_count if self.total_count > 0 else 0.0
+
+
+# ── PR 8: Scoring Engine ──────────────────────────────────────────────────────
+
+
+@dataclass
+class ScoreBreakdown:
+    """9-factor scoring result for one asset. Maps 1:1 to candidate_scores columns.
+
+    Produced by score_asset() (PR 8). Consumed by the candidate selector (PR 9)
+    and persisted to candidate_scores by the run persister (PR 10).
+
+    All sub-scores are non-negative floats at or below their stated maximums.
+    score_total == sum of all nine components, capped at 100.
+
+    category:
+        'clean'     — score >= 70 + clean-specific thresholds (volume, RSI, anti-chase)
+        'ugly'      — score >= 62 + ugly-specific thresholds
+        'watchlist' — score >= 55, just misses clean/ugly qualification
+        'excluded'  — used by the DB persister for hard-filtered assets (not from scorer)
+    """
+
+    symbol: str
+    category: str | None  # 'clean' | 'ugly' | 'watchlist' | 'excluded' | None
+    exclusion_reason: str | None  # None for scored assets; populated from HardFilterResult
+
+    score_total: float  # 0–100
+    score_liquidity: float  # /20  — volume & tradability
+    score_upside: float  # /15  — 7-10 day upside feasibility
+    score_volatility: float  # /10  — ATR expansion / sweet spot
+    score_structure: float  # /15  — multi-TF EMA + VWAP structure
+    score_rel_strength: float  # /10  — relative performance vs BTC
+    score_volume: float  # /10  — volume confirmation
+    score_catalyst: float  # /10  — catalyst / market attention proxy
+    score_supply_risk: float  # /5   — overhead supply risk
+    score_execution: float  # /5   — entry zone clarity
+
+    probability_pct: float | None  # heuristic success percentile (not a guarantee)
+
+
+@dataclass
+class ScoringResult:
+    """Output of run_scoring_engine().
+
+    scores — ScoreBreakdown for every asset that passed the hard filter,
+             sorted by score_total descending.
+    """
+
+    scores: list[ScoreBreakdown] = field(default_factory=list)
+
+    @property
+    def clean(self) -> list[ScoreBreakdown]:
+        return [s for s in self.scores if s.category == "clean"]
+
+    @property
+    def ugly(self) -> list[ScoreBreakdown]:
+        return [s for s in self.scores if s.category == "ugly"]
+
+    @property
+    def watchlist(self) -> list[ScoreBreakdown]:
+        return [s for s in self.scores if s.category == "watchlist"]
+
+    @property
+    def clean_count(self) -> int:
+        return len(self.clean)
+
+    @property
+    def ugly_count(self) -> int:
+        return len(self.ugly)
