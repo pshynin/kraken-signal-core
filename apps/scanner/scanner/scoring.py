@@ -128,20 +128,37 @@ class ScoringConfig:
     watchlist_min_score: float = 55.0
     """Minimum score_total to appear on the watchlist."""
 
+    prob_map: tuple[tuple[float, float], ...] = _PROB_MAP
+    """Score-floor → probability-pct tiers. Defaults to migration 0012 values.
+    Overridden by settings.py when strategy_settings is loaded from Supabase.
+    """
+
 
 # ── Probability mapping ───────────────────────────────────────────────────────
+
+
+def _prob_from_map(
+    score_total: float,
+    prob_map: tuple[tuple[float, float], ...],
+) -> float | None:
+    """Map score_total to a heuristic probability percentile using the given map.
+
+    Used by score_asset() so the map can be overridden via ScoringConfig.
+    """
+    for floor, pct in prob_map:
+        if score_total >= floor:
+            return pct
+    return None
 
 
 def _probability_pct(score_total: float) -> float | None:
     """Map score_total to a heuristic success probability percentile.
 
-    Uses the _PROB_MAP tiers from migration 0012 scoring.probability_map.
+    Uses the module-level _PROB_MAP tiers from migration 0012.
     Returns None when score_total is below the lowest tier (62).
+    Delegates to _prob_from_map for the actual lookup.
     """
-    for floor, pct in _PROB_MAP:
-        if score_total >= floor:
-            return pct
-    return None
+    return _prob_from_map(score_total, _PROB_MAP)
 
 
 # ── Sub-scorers ───────────────────────────────────────────────────────────────
@@ -559,7 +576,7 @@ def score_asset(
 
     total = round(min(liq + ups + vol + struct + rs + volume + cat + sup + exe, 100.0), 2)
     category = _assign_category(total, metrics, indicator, config)
-    prob = _probability_pct(total)
+    prob = _prob_from_map(total, config.prob_map)
 
     return ScoreBreakdown(
         symbol=metrics.symbol,

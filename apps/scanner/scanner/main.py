@@ -86,6 +86,19 @@ def main(dry_run: bool = False) -> int:
     else:
         log.info("Stage 1 — skipping DB write (dry_run=%s, env=%s)", dry_run, cfg.scanner_env)
 
+    # ── Load strategy settings ───────────────────────────────────────────
+    from scanner.settings import default_settings, load_strategy_settings
+
+    if _do_db and db_client:
+        try:
+            strategy = load_strategy_settings(db_client)
+        except Exception as exc:
+            log.warning("Failed to load strategy_settings (%s) — using defaults", exc)
+            strategy = default_settings()
+    else:
+        strategy = default_settings()
+        log.info("Stage 1 — using default strategy settings (dry_run=%s)", dry_run)
+
     # ── Stage 2: Market data fetcher ──────────────────────────────────────────
     from scanner.fetcher import fetch_market_data
 
@@ -139,6 +152,7 @@ def main(dry_run: bool = False) -> int:
     filter_result = run_hard_filter(
         fetch_result.successful,
         indicator_result.successful,
+        config=strategy.to_hard_filter_config(),
     )
 
     if filter_result.passed_count == 0:
@@ -156,7 +170,7 @@ def main(dry_run: bool = False) -> int:
     from scanner.scoring import run_scoring_engine
 
     log.info("Stage 5 — scoring %d assets", filter_result.passed_count)
-    scoring_result = run_scoring_engine(filter_result)
+    scoring_result = run_scoring_engine(filter_result, config=strategy.to_scoring_config())
 
     log.info(
         "Stage 5 complete: clean=%d ugly=%d watchlist=%d",
@@ -169,7 +183,9 @@ def main(dry_run: bool = False) -> int:
     from scanner.selector import run_candidate_selector
 
     log.info("Stage 6 — selecting candidates and computing trade parameters")
-    selection_result = run_candidate_selector(scoring_result, filter_result)
+    selection_result = run_candidate_selector(
+        scoring_result, filter_result, config=strategy.to_selector_config()
+    )
 
     if selection_result.total_count == 0:
         log.warning("Stage 6: no candidates selected (clean=0, ugly=0)")
