@@ -71,11 +71,34 @@ def main(dry_run: bool = False) -> int:
     else:
         log.info("Stage 1 — skipping DB write (dry_run=%s, env=%s)", dry_run, cfg.scanner_env)
 
+    # ── Stage 2: Market data fetcher ──────────────────────────────────────────
+    from scanner.fetcher import fetch_market_data
+
+    log.info("Stage 2 — fetching OHLCV market data")
+    fetch_result = fetch_market_data(universe)
+
+    if fetch_result.success_count == 0:
+        log.error("Stage 2 failed: no assets returned OHLCV data")
+        return 1
+
+    if fetch_result.failed_symbols:
+        log.warning(
+            "Stage 2 partial: %d asset(s) failed to fetch and will be excluded — %s",
+            fetch_result.failure_count,
+            fetch_result.failed_symbols,
+        )
+
+    log.info(
+        "Stage 2 complete: %d/%d assets ready for indicator engine",
+        fetch_result.success_count,
+        fetch_result.total_count,
+    )
+
     # ── Remaining stages not yet implemented ──────────────────────────────────
     log.warning(
-        "Stages 2–10 not yet implemented (PRs 5–11). "
-        "Universe loaded successfully — %d pairs ready for data fetching.",
-        len(universe),
+        "Stages 3–10 not yet implemented (PRs 6–11). "
+        "%d asset OHLCV bundles ready for indicator engine.",
+        fetch_result.success_count,
     )
     return 0
 
