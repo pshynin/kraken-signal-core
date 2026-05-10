@@ -117,11 +117,30 @@ def main(dry_run: bool = False) -> int:
         indicator_result.total_count,
     )
 
+    # ── Stage 4: Hard filter + market metrics ─────────────────────────────────
+    from scanner.filter import run_hard_filter
+
+    log.info("Stage 4 — computing market metrics and applying hard filter")
+    filter_result = run_hard_filter(
+        fetch_result.successful,
+        indicator_result.successful,
+    )
+
+    if filter_result.passed_count == 0:
+        log.error("Stage 4: all assets excluded by hard filter")
+        return 1
+
+    log.info(
+        "Stage 4 complete: %d passed / %d excluded (pass rate %.0f%%)",
+        filter_result.passed_count,
+        filter_result.excluded_count,
+        filter_result.pass_rate * 100,
+    )
+
     # ── Remaining stages not yet implemented ──────────────────────────────────
     log.warning(
-        "Stages 4–10 not yet implemented (PRs 7–11). "
-        "%d asset indicator bundles ready for hard filter.",
-        indicator_result.success_count,
+        "Stages 5–10 not yet implemented (PRs 8–11). %d assets ready for scoring engine.",
+        filter_result.passed_count,
     )
     return 0
 
