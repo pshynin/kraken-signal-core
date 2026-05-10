@@ -327,7 +327,11 @@ def load_strategy_settings(client: Client) -> StrategySettings:
     resp = client.table("strategy_settings").select("setting_key, setting_value").execute()
     rows = cast(list[dict[str, Any]], resp.data or [])
     raw: dict[str, str] = {
-        str(row["setting_key"]): str(row["setting_value"])
+        str(row["setting_key"]): (
+            json.dumps(row["setting_value"])
+            if isinstance(row["setting_value"], (dict, list))
+            else str(row["setting_value"])
+        )
         for row in rows
         if row.get("setting_key") and row.get("setting_value") is not None
     }
