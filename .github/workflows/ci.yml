@@ -43,6 +43,84 @@ jobs:
           SUPABASE_URL: http://localhost:54321
           SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
 
+  # ── Database migrations ───────────────────────────────────────────────────
+  migrations:
+    name: Database Migrations (Postgres 15)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: signal_test
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://postgres:testpassword@localhost:5432/signal_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply all migrations in order
+        run: |
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            echo "▶ Applying: $f"
+            psql "$DATABASE_URL" -f "$f" -v ON_ERROR_STOP=1
+          done
+
+      - name: Verify all tables exist
+        run: |
+          TABLES=(
+            assets
+            scan_runs
+            market_snapshots
+            indicator_snapshots
+            candidate_scores
+            candidate_recommendations
+            alerts_sent
+            asset_state_history
+            strategy_settings
+            webhook_destinations
+          )
+          for table in "${TABLES[@]}"; do
+            COUNT=$(psql "$DATABASE_URL" -tAc \
+              "SELECT COUNT(*) FROM information_schema.tables \
+               WHERE table_schema='public' AND table_name='$table'")
+            if [ "$COUNT" != "1" ]; then
+              echo "❌ Table missing: $table"
+              exit 1
+            fi
+            echo "✅ $table"
+          done
+
+      - name: Verify strategy_settings seeded
+        run: |
+          COUNT=$(psql "$DATABASE_URL" -tAc "SELECT COUNT(*) FROM strategy_settings")
+          echo "strategy_settings rows: $COUNT"
+          if [ "$COUNT" -lt "30" ]; then
+            echo "❌ Expected at least 30 seed rows, got $COUNT"
+            exit 1
+          fi
+          echo "✅ Seed data present"
+
+      - name: Verify webhook_destinations seeded
+        run: |
+          COUNT=$(psql "$DATABASE_URL" -tAc "SELECT COUNT(*) FROM webhook_destinations")
+          echo "webhook_destinations rows: $COUNT"
+          if [ "$COUNT" -lt "3" ]; then
+            echo "❌ Expected 3 webhook destination rows, got $COUNT"
+            exit 1
+          fi
+          echo "✅ Webhook destinations seeded"
+
   # ── TypeScript / Next.js checks ───────────────────────────────────────────
   web:
     name: Web (TypeScript / Next.js)
