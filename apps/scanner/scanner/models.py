@@ -5,6 +5,9 @@ Each PR adds the models it needs; future PRs extend this file.
 
 PR 5 — Market Data Fetcher:
     OHLCVCandle, AssetOHLCV, FetchResult
+
+PR 6 — Indicator Engine:
+    IndicatorSnapshot, AssetIndicators, IndicatorResult
 """
 
 from __future__ import annotations
@@ -103,4 +106,102 @@ class FetchResult:
     @property
     def success_rate(self) -> float:
         """Fraction of assets fetched successfully. 0.0 if universe was empty."""
+        return self.success_count / self.total_count if self.total_count > 0 else 0.0
+
+
+# ── PR 6: Indicator Engine ────────────────────────────────────────────────────
+
+#: Literal values matching the indicator_snapshots DB CHECK constraints.
+TREND_STATES = ("strong_up", "up", "neutral", "down", "strong_down")
+EMA_ALIGNMENTS = ("bullish", "partial_bullish", "neutral", "bearish")
+VWAP_STATES = ("above", "reclaiming", "below")
+
+
+@dataclass
+class IndicatorSnapshot:
+    """Computed indicators for one asset on one timeframe.
+
+    Mirrors scanner.ts IndicatorValues and maps 1:1 to indicator_snapshots columns.
+    All price-derived fields are None when there are insufficient candles to compute.
+
+    trend_state    — 'strong_up'|'up'|'neutral'|'down'|'strong_down'
+    ema_alignment  — 'bullish'|'partial_bullish'|'neutral'|'bearish'
+    vwap_state     — 'above'|'reclaiming'|'below'
+    """
+
+    symbol: str
+    timeframe: str  # '4h' | '1h' | '30m'
+    snapshot_time: str  # ISO 8601 timestamp of last closed candle
+
+    ema_20: float | None
+    ema_50: float | None
+    ema_200: float | None
+    price_vs_ema20_pct: float | None
+    price_vs_ema50_pct: float | None
+    price_vs_ema200_pct: float | None
+
+    vwap: float | None
+    price_vs_vwap_pct: float | None
+
+    rsi_14: float | None
+
+    atr_14: float | None
+    atr_14_pct: float | None
+
+    volume_ma_20: float | None
+    volume_current: float | None
+
+    trend_state: str | None
+    ema_alignment: str | None
+    vwap_state: str | None
+
+
+@dataclass
+class AssetIndicators:
+    """Three-timeframe indicator bundle for one asset.
+
+    Mirrors scanner.ts AssetIndicators.
+    Produced by run_indicator_engine() and consumed by the hard filter (PR 7)
+    and scoring engine (PR 8).
+    """
+
+    symbol: str
+    kraken_pair: str
+    tf_4h: IndicatorSnapshot
+    tf_1h: IndicatorSnapshot
+    tf_30m: IndicatorSnapshot
+
+    def snapshot_for(self, timeframe: str) -> IndicatorSnapshot:
+        """Return the IndicatorSnapshot for the given timeframe ('4h', '1h', '30m')."""
+        mapping = {"4h": self.tf_4h, "1h": self.tf_1h, "30m": self.tf_30m}
+        if timeframe not in mapping:
+            raise ValueError(f"Unknown timeframe: {timeframe!r}")
+        return mapping[timeframe]
+
+
+@dataclass
+class IndicatorResult:
+    """Output of run_indicator_engine().
+
+    successful    — AssetIndicators for assets that computed without error
+    failed_symbols — symbols that raised exceptions (excluded downstream)
+    """
+
+    successful: list[AssetIndicators] = field(default_factory=list)
+    failed_symbols: list[str] = field(default_factory=list)
+
+    @property
+    def success_count(self) -> int:
+        return len(self.successful)
+
+    @property
+    def failure_count(self) -> int:
+        return len(self.failed_symbols)
+
+    @property
+    def total_count(self) -> int:
+        return self.success_count + self.failure_count
+
+    @property
+    def success_rate(self) -> float:
         return self.success_count / self.total_count if self.total_count > 0 else 0.0
