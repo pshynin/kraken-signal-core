@@ -354,3 +354,80 @@ class ScoringResult:
     @property
     def ugly_count(self) -> int:
         return len(self.ugly)
+
+
+# ── PR 9: Candidate Selector + Trade Parameters ───────────────────────────────
+
+# Valid size bucket values — must match crecs_size_bucket_check DB constraint.
+SIZE_BUCKETS: tuple[str, ...] = ("2k", "2k-5k", "5k-10k", "10k-20k", "20k+")
+
+
+@dataclass
+class TradeParameters:
+    """Computed entry/exit/stop/size parameters for one candidate.
+
+    Maps 1:1 to candidate_recommendations trade columns.
+
+    DB constraints enforced at construction time in selector.py:
+        stop_loss < entry_price
+        exit_price > entry_price
+        entry_price_low <= entry_price_high (when both present)
+
+    expected_gain_pct is expressed as a percentage (10.0 = +10%), matching the
+    migration 0007 NUMERIC(8,4) column definition and the comment:
+    "(exit − entry_midpoint) / entry_midpoint × 100".
+    reward_risk_ratio is a pure ratio (2.5 = 2.5× reward per unit of risk).
+    """
+
+    symbol: str
+
+    entry_price: float  # midpoint of entry zone
+    entry_price_low: float | None  # lower bound (limit order floor)
+    entry_price_high: float | None  # upper bound (breakout trigger)
+    exit_price: float  # target / sell order price
+    stop_loss: float  # stop loss price
+
+    suggested_size_bucket: str  # '2k' | '2k-5k' | '5k-10k' | '10k-20k' | '20k+'
+    expected_gain_pct: float  # (exit - entry) / entry × 100
+    reward_risk_ratio: float  # (exit - entry) / (entry - stop_loss)
+    notes: str | None  # scanner-generated rationale for Discord / dashboard
+
+
+@dataclass
+class ScoredCandidate:
+    """A ranked, fully parameterised trade candidate.
+
+    Aggregates all four per-asset outputs from the scanner pipeline
+    (score, trade parameters, market metrics, indicators) into one object
+    ready for DB persistence (PR 10) and Discord alerting (PR 11).
+    """
+
+    symbol: str
+    kraken_pair: str
+    category: str  # 'clean' | 'ugly'
+    rank: int  # 1 = best in category
+
+    score: ScoreBreakdown
+    trade: TradeParameters
+    market: MarketMetrics
+    indicators: AssetIndicators
+
+
+@dataclass
+class SelectionResult:
+    """Output of run_candidate_selector().
+
+    clean — top-N clean candidates sorted by score_total descending (rank 1 = best).
+    ugly  — top-N ugly candidates sorted by score_total descending.
+    """
+
+    clean: list[ScoredCandidate] = field(default_factory=list)
+    ugly: list[ScoredCandidate] = field(default_factory=list)
+
+    @property
+    def all_candidates(self) -> list[ScoredCandidate]:
+        return self.clean + self.ugly
+
+    @property
+    def total_count(self) -> int:
+        return len(self.clean) + len(self.ugly)

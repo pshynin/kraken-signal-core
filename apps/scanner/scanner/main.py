@@ -150,12 +150,26 @@ def main(dry_run: bool = False) -> int:
         len(scoring_result.watchlist),
     )
 
+    # ── Stage 6: Candidate selector + trade parameters ────────────────────────
+    from scanner.selector import run_candidate_selector
+
+    log.info("Stage 6 — selecting candidates and computing trade parameters")
+    selection_result = run_candidate_selector(scoring_result, filter_result)
+
+    if selection_result.total_count == 0:
+        log.warning("Stage 6: no candidates selected (clean=0, ugly=0)")
+    else:
+        log.info(
+            "Stage 6 complete: %d clean + %d ugly candidates",
+            len(selection_result.clean),
+            len(selection_result.ugly),
+        )
+
     # ── Remaining stages not yet implemented ──────────────────────────────────
     log.warning(
-        "Stages 6–10 not yet implemented (PRs 9–11). "
-        "%d clean + %d ugly candidates ready for selector.",
-        scoring_result.clean_count,
-        scoring_result.ugly_count,
+        "Stages 7–10 not yet implemented (PRs 10–11). "
+        "%d total candidates ready for DB persistence.",
+        selection_result.total_count,
     )
     return 0
 
