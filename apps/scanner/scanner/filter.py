@@ -82,7 +82,7 @@ class HardFilterConfig:
     max_price_vs_ema20_pct: float = 20.0
     """ugly.max_price_vs_ema20_pct — most permissive anti-chase EMA20 ceiling."""
 
-    min_atr_pct: float = 4.0
+    min_atr_pct: float = 2.5
     """clean.min_atr_pct — lowest ATR floor across both categories."""
 
     max_atr_pct: float = 30.0

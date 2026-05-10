@@ -31,7 +31,7 @@ INSERT INTO strategy_settings (setting_key, setting_value, description) VALUES
    '24-hour dollar volume floor for clean candidates ($2M)'),
 
   ('clean.min_atr_pct',
-   '4.0',
+   '2.5',
    'ATR 7d minimum as % of price — below this = not enough movement'),
 
   ('clean.max_atr_pct',

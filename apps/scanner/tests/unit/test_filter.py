@@ -186,7 +186,7 @@ def test_apply_filter_rejects_overextended_vs_ema20() -> None:
 
 def test_apply_filter_rejects_insufficient_volatility() -> None:
     m = _good_metrics()
-    m.atr_pct_7d = 3.0  # below 4% floor
+    m.atr_pct_7d = 2.0  # below 2.5% floor
     result = apply_hard_filter(m, _indicator(), _DEFAULT_CONFIG)
     assert result.exclusion_reason == "insufficient_volatility"
 
