@@ -179,8 +179,7 @@ def fetch_market_data(
         # Build reverse map: kraken pair ID → ccxt symbol
         # e.g. {"XXBTZUSD": "BTC/USD", "LUNAUSD": "LUNA2/USD", ...}
         pair_id_map: dict[str, str] = {
-            market["id"]: ccxt_sym
-            for ccxt_sym, market in exchange.markets.items()
+            market["id"]: ccxt_sym for ccxt_sym, market in exchange.markets.items()
         }
         log.debug("ccxt pair_id_map built: %d entries", len(pair_id_map))
 
