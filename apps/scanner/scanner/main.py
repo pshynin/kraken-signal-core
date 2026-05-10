@@ -4,17 +4,17 @@ Usage:
     python -m scanner.main
     python -m scanner.main --dry-run
 
-Pipeline stages (added across PRs 4–12):
-    1. Universe loader        (PR 4)
-    2. Market data fetcher    (PR 5)
-    3. Indicator engine       (PR 6)
-    4. Hard filter            (PR 7)
-    5. Metric calculator      (PR 7)
-    6. Scoring engine         (PR 8)
-    7. Candidate selector     (PR 9)
-    8. State machine          (PR 10)
-    9. Run persister          (PR 10)
-    10. Alert dispatcher      (PR 11)
+Pipeline stages:
+    1. Universe loader        ✅ PR 4
+    2. Market data fetcher       PR 5
+    3. Indicator engine          PR 6
+    4. Hard filter               PR 7
+    5. Metric calculator         PR 7
+    6. Scoring engine            PR 8
+    7. Candidate selector        PR 9
+    8. State machine             PR 10
+    9. Run persister             PR 10
+    10. Alert dispatcher         PR 11
 """
 
 from __future__ import annotations
@@ -37,16 +37,46 @@ def main(dry_run: bool = False) -> int:
     _configure_logging()
     log = logging.getLogger(__name__)
 
-    log.info("Crypto Momentum Alert Copilot — Scanner starting")
-    log.info("Version: scaffold (PR 1 of 18) | dry_run=%s", dry_run)
-    log.warning("Pipeline not yet implemented. PRs 4–12 build the full scan execution pipeline.")
+    log.info("Crypto Momentum Alert Copilot — Scanner starting | dry_run=%s", dry_run)
 
-    print()
-    print("Crypto Momentum Alert Copilot — Scanner Service")
-    print("Status : scaffold only — pipeline not yet implemented.")
-    print("Next   : PR 2 (schema) → PR 4 (universe) → PR 5 (data) → ...")
-    print()
+    # ── Stage 1: Universe loader ───────────────────────────────────────────────
+    from scanner.config import load_config
+    from scanner.universe import load_universe
 
+    try:
+        cfg = load_config(dry_run=dry_run)
+    except OSError as exc:
+        log.error("Configuration error: %s", exc)
+        return 1
+
+    log.info("Stage 1 — loading Kraken universe")
+    try:
+        universe = load_universe()
+    except Exception as exc:
+        log.exception("Universe load failed: %s", exc)
+        return 1
+
+    log.info("Universe: %d tradable USD spot pairs", len(universe))
+    for item in universe[:5]:
+        log.debug("  %s (%s) ordermin=%.8f", item.symbol, item.kraken_pair, item.min_order_size)
+
+    # ── DB write (skip on dry_run or missing credentials) ─────────────────────
+    if not dry_run and cfg.scanner_env != "test" and cfg.supabase_url:
+        from scanner.db import get_client, mark_stale_assets_inactive, upsert_assets
+
+        log.info("Stage 1 — upserting %d assets to DB", len(universe))
+        client = get_client(cfg)
+        upsert_assets(client, universe)
+        mark_stale_assets_inactive(client, [item.kraken_pair for item in universe])
+    else:
+        log.info("Stage 1 — skipping DB write (dry_run=%s, env=%s)", dry_run, cfg.scanner_env)
+
+    # ── Remaining stages not yet implemented ──────────────────────────────────
+    log.warning(
+        "Stages 2–10 not yet implemented (PRs 5–11). "
+        "Universe loaded successfully — %d pairs ready for data fetching.",
+        len(universe),
+    )
     return 0
 
 
