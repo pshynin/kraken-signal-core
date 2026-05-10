@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark trading-terminal palette */
+    --background:        222 47% 5%;
+    --foreground:        210 40% 96%;
+
+    --card:              222 47% 8%;
+    --card-foreground:   210 40% 96%;
+
+    --primary:           142 71% 45%;   /* emerald — clean candidates */
+    --primary-foreground: 144 100% 97%;
+
+    --muted:             217 33% 15%;
+    --muted-foreground:  215 20% 55%;
+
+    --accent:            38 92% 50%;    /* amber — ugly / warning */
+    --accent-foreground: 38 100% 10%;
+
+    --border:            217 33% 15%;
+    --radius:            0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Monospace numbers in tables — prevent column-width jitter */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}

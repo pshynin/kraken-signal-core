@@ -1,0 +1,28 @@
+version: "3.8"
+
+# ── Scanner service ────────────────────────────────────────────────────────────
+# Runs the Python scanner once and exits (mirrors GitHub Actions behavior).
+# Full Dockerfile added in PR 17.
+#
+# Usage:
+#   docker compose run --rm scanner
+#   docker compose run --rm scanner python -m scanner.main --dry-run
+
+services:
+  scanner:
+    build:
+      context: ./apps/scanner
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      SCANNER_ENV: development
+    restart: "no"
+
+# ── Optional: Supabase local stack ────────────────────────────────────────────
+# Uncomment to run a full local Supabase instance instead of pointing at cloud.
+# Requires: supabase start  (https://supabase.com/docs/guides/local-development)
+#
+# After `supabase start`, update .env:
+#   SUPABASE_URL=http://localhost:54321
+#   SUPABASE_SERVICE_ROLE_KEY=<from supabase status output>

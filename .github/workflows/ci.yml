@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Python scanner checks ─────────────────────────────────────────────────
+  scanner:
+    name: Scanner (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/scanner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/scanner/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check scanner/ tests/
+
+      - name: Format check (ruff)
+        run: ruff format --check scanner/ tests/
+
+      - name: Type check (mypy)
+        run: mypy scanner/
+
+      - name: Tests (pytest)
+        run: pytest --cov=scanner --cov-report=term-missing tests/
+        env:
+          SCANNER_ENV: test
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+
+  # ── TypeScript / Next.js checks ───────────────────────────────────────────
+  web:
+    name: Web (TypeScript / Next.js)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Type check (shared-types)
+        run: pnpm --filter @kraken-signal/shared-types type-check
+
+      - name: Type check (web)
+        run: pnpm --filter @kraken-signal/web type-check
+
+      - name: Lint (web)
+        run: pnpm --filter @kraken-signal/web lint
+
+      - name: Build (web)
+        run: pnpm --filter @kraken-signal/web build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          DASHBOARD_PASSCODE: ci-test-passcode
