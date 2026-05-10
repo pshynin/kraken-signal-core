@@ -205,3 +205,83 @@ class IndicatorResult:
     @property
     def success_rate(self) -> float:
         return self.success_count / self.total_count if self.total_count > 0 else 0.0
+
+
+# ── PR 7: Hard Filter + Market Metrics ───────────────────────────────────────
+
+
+@dataclass
+class MarketMetrics:
+    """Computed market metrics for one asset. Maps 1:1 to market_snapshots columns.
+
+    Produced by compute_market_metrics() (PR 7) from 4h OHLCV candles.
+    Consumed by run_hard_filter() (PR 7) and the scoring engine (PR 8).
+
+    Returns are fractional, e.g. 0.08 = +8%.
+    Distances are fractional and negative when price is below the reference high.
+    """
+
+    symbol: str
+    kraken_pair: str
+    snapshot_time: str  # ISO 8601 timestamp of last closed 4h candle
+
+    price_usd: float
+    price_btc: float | None  # future: price_usd / btc_price; None until PR 10
+
+    volume_24h_usd: float | None
+    volume_7d_avg_usd: float | None
+    volume_ratio_20d: float | None  # volume_24h / 20-day avg daily volume
+
+    return_3d: float | None
+    return_7d: float | None
+    return_14d: float | None
+    return_vs_btc_7d: float | None  # return_7d minus BTC 7d return
+
+    dist_from_7d_high: float | None  # (close - 7d_high) / 7d_high, always <= 0
+    dist_from_20d_high: float | None
+
+    spread_pct: float | None  # OHLC-proxy: mean (high-low)/close over last 6 candles
+    atr_pct_7d: float | None  # reused from AssetIndicators.tf_4h.atr_14_pct
+
+
+@dataclass
+class HardFilterResult:
+    """Outcome of the hard filter for one asset.
+
+    passed=True  — asset clears all rules; proceeds to the scoring engine.
+    passed=False — exclusion_reason holds the first failing rule name.
+    """
+
+    symbol: str
+    passed: bool
+    exclusion_reason: str | None  # None iff passed is True
+
+
+@dataclass
+class FilterResult:
+    """Output of run_hard_filter().
+
+    passed_metrics    — MarketMetrics for assets clearing all hard rules.
+    passed_indicators — AssetIndicators in the same order (co-indexed with passed_metrics).
+    exclusions        — HardFilterResult for every rejected asset.
+    """
+
+    passed_metrics: list[MarketMetrics] = field(default_factory=list)
+    passed_indicators: list[AssetIndicators] = field(default_factory=list)
+    exclusions: list[HardFilterResult] = field(default_factory=list)
+
+    @property
+    def passed_count(self) -> int:
+        return len(self.passed_metrics)
+
+    @property
+    def excluded_count(self) -> int:
+        return len(self.exclusions)
+
+    @property
+    def total_count(self) -> int:
+        return self.passed_count + self.excluded_count
+
+    @property
+    def pass_rate(self) -> float:
+        return self.passed_count / self.total_count if self.total_count > 0 else 0.0
