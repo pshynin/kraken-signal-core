@@ -534,7 +534,7 @@ def persist_run(
     filter_result: FilterResult,
     scoring_result: ScoringResult,
     selection_result: SelectionResult,
-) -> None:
+) -> dict[str, str]:
     """Execute all DB write operations for a completed scan run.
 
     Write order preserves FK dependencies:
@@ -559,7 +559,7 @@ def persist_run(
 
     if not all_symbols:
         log.warning("persist_run: no symbols to persist — skipping DB writes")
-        return
+        return {}
 
     log.info("persist_run: resolving asset_ids for %d symbols", len(all_symbols))
     asset_id_map = fetch_asset_id_map(client, all_symbols)
@@ -569,7 +569,7 @@ def persist_run(
             "persist_run: asset_id_map is empty — ensure upsert_assets() "
             "ran before persist_run() (Stage 1 DB write must not be skipped)"
         )
-        return
+        return {}
 
     upsert_market_snapshots(client, scan_run_id, asset_id_map, filter_result.passed_metrics)
     upsert_indicator_snapshots(client, scan_run_id, asset_id_map, filter_result.passed_indicators)
@@ -580,4 +580,12 @@ def persist_run(
         client, scan_run_id, asset_id_map, score_id_map, selection_result
     )
 
+    # ── State machine: record initial transitions ──────────────────────────────
+    from scanner.state_machine import record_initial_transitions
+
+    record_initial_transitions(
+        client, scan_run_id, asset_id_map, filter_result, scoring_result, selection_result
+    )
+
     log.info("persist_run complete for scan_run_id=%s", scan_run_id)
+    return asset_id_map

@@ -180,28 +180,23 @@ def main(dry_run: bool = False) -> int:
             len(selection_result.ugly),
         )
 
-    # ── Stage 7: Run persister (DB writes) ──────────────────────────────────────
+    # ── Stage 7: Run persister (DB writes + state machine) ───────────────────
+    asset_id_map: dict[str, str] = {}
+    _persist_ok = False
+
     if _do_db and db_client and scan_run_id:
-        from scanner.persister import complete_scan_run, fail_scan_run, persist_run
+        from scanner.persister import fail_scan_run, persist_run
 
         log.info("Stage 7 — persisting run data to Supabase")
         try:
-            persist_run(
+            asset_id_map = persist_run(
                 db_client,
                 scan_run_id,
                 filter_result=filter_result,
                 scoring_result=scoring_result,
                 selection_result=selection_result,
             )
-            complete_scan_run(
-                db_client,
-                scan_run_id,
-                status="completed",
-                assets_scanned=fetch_result.total_count,
-                assets_passed_filter=filter_result.passed_count,
-                candidates_clean=len(selection_result.clean),
-                candidates_ugly=len(selection_result.ugly),
-            )
+            _persist_ok = True
             log.info("Stage 7 complete — all tables written")
         except Exception as exc:
             log.exception("Stage 7 failed: %s", exc)
@@ -213,8 +208,50 @@ def main(dry_run: bool = False) -> int:
             selection_result.total_count,
         )
 
-    # ── Remaining stages not yet implemented ──────────────────────────────────
-    log.warning("Stage 8 (alerts) not yet implemented (PR 11).")
+    # ── Stage 8: Discord alerts ───────────────────────────────────────────────
+    alerts_sent_count = 0
+
+    if _do_db and db_client and scan_run_id and _persist_ok and asset_id_map:
+        from scanner.alerter import load_alert_config, run_alerter
+
+        alert_config = load_alert_config()
+        if alert_config:
+            log.info("Stage 8 — sending Discord alerts")
+            try:
+                alerts_sent_count = run_alerter(
+                    db_client,
+                    scan_run_id,
+                    asset_id_map,
+                    selection_result,
+                    alert_config,
+                )
+                log.info("Stage 8 complete — %d alerts sent", alerts_sent_count)
+            except Exception as exc:
+                log.exception("Stage 8 failed: %s", exc)
+        else:
+            log.warning(
+                "Stage 8 — Discord webhooks not configured "
+                "(set DISCORD_WEBHOOK_CLEAN and DISCORD_WEBHOOK_UGLY to enable)"
+            )
+    elif not _do_db:
+        log.info("Stage 8 — skipping alerts (dry_run=%s)", dry_run)
+
+    # ── Finalise scan run record ──────────────────────────────────────────────
+    if _do_db and db_client and scan_run_id:
+        from scanner.persister import complete_scan_run
+
+        status = "completed" if _persist_ok else "partial"
+        complete_scan_run(
+            db_client,
+            scan_run_id,
+            status=status,
+            assets_scanned=fetch_result.total_count,
+            assets_passed_filter=filter_result.passed_count,
+            candidates_clean=len(selection_result.clean),
+            candidates_ugly=len(selection_result.ugly),
+            alerts_sent=alerts_sent_count,
+        )
+
     return 0
 
 
