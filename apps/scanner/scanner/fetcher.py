@@ -71,8 +71,17 @@ def create_exchange() -> ccxt.kraken:
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 
-def _ccxt_symbol(item: AssetUniverseItem) -> str:
-    """Construct ccxt market symbol, e.g. 'BTC/USD', 'SOL/USD'."""
+def _ccxt_symbol(item: AssetUniverseItem, pair_id_map: dict[str, str] | None = None) -> str:
+    """Return the ccxt market symbol for an asset.
+
+    Prefers a lookup in pair_id_map (kraken_pair → ccxt_symbol) built from
+    exchange.markets after load_markets(), which handles rebranded or
+    non-standard pairs like LUNA2/USD correctly.
+
+    Falls back to constructing 'SYMBOL/USD' if the pair ID is not in the map.
+    """
+    if pair_id_map and item.kraken_pair in pair_id_map:
+        return pair_id_map[item.kraken_pair]
     return f"{item.symbol}/{item.quote_currency}"
 
 
@@ -99,14 +108,18 @@ def _fetch_asset_ohlcv(
     fetch_fn: FetchFn,
     timeframes: list[str] = TIMEFRAMES,
     limit: int = CANDLES_PER_TIMEFRAME,
+    ccxt_symbol_override: str | None = None,
 ) -> AssetOHLCV:
     """Fetch OHLCV candles for all timeframes for one asset.
 
     Args:
-        item:       Asset to fetch.
-        fetch_fn:   Callable(symbol, timeframe, limit) → raw rows.
-        timeframes: Timeframes to fetch (default: TIMEFRAMES).
-        limit:      Candles per timeframe (default: CANDLES_PER_TIMEFRAME).
+        item:                 Asset to fetch.
+        fetch_fn:             Callable(symbol, timeframe, limit) → raw rows.
+        timeframes:           Timeframes to fetch (default: TIMEFRAMES).
+        limit:                Candles per timeframe (default: CANDLES_PER_TIMEFRAME).
+        ccxt_symbol_override: Use this ccxt symbol instead of constructing from
+                              item.symbol. Allows correct mapping for rebranded
+                              pairs (e.g. LUNA → LUNA2/USD).
 
     Returns:
         AssetOHLCV with all timeframe candle lists populated.
@@ -115,7 +128,7 @@ def _fetch_asset_ohlcv(
         Exception: propagated from fetch_fn if any timeframe fetch fails.
                    Caller is responsible for catching and recording failures.
     """
-    ccxt_sym = _ccxt_symbol(item)
+    ccxt_sym = ccxt_symbol_override if ccxt_symbol_override else _ccxt_symbol(item)
     fetched_at = datetime.now(UTC).isoformat()
     candles: dict[str, list[OHLCVCandle]] = {}
 
@@ -163,10 +176,19 @@ def fetch_market_data(
         log.info("Loading Kraken markets via ccxt")
         exchange.load_markets()
 
+        # Build reverse map: kraken pair ID → ccxt symbol
+        # e.g. {"XXBTZUSD": "BTC/USD", "LUNAUSD": "LUNA2/USD", ...}
+        pair_id_map: dict[str, str] = {
+            market["id"]: ccxt_sym for ccxt_sym, market in exchange.markets.items()
+        }
+        log.debug("ccxt pair_id_map built: %d entries", len(pair_id_map))
+
         def _live(sym: str, tf: str, lim: int) -> list[list[Any]]:
             return cast(list[list[Any]], exchange.fetch_ohlcv(sym, tf, limit=lim))
 
         fetch_fn = _live
+    else:
+        pair_id_map = {}
 
     total = len(universe)
     successful: list[AssetOHLCV] = []
@@ -176,7 +198,11 @@ def fetch_market_data(
 
     for i, item in enumerate(universe, start=1):
         try:
-            result = _fetch_asset_ohlcv(item, fetch_fn)
+            result = _fetch_asset_ohlcv(
+                item,
+                fetch_fn,
+                ccxt_symbol_override=_ccxt_symbol(item, pair_id_map),
+            )
             successful.append(result)
             log.debug(
                 "[%d/%d] %s — OK (%d×%d candles)",
