@@ -54,31 +54,32 @@ def _resolve_previous_states(
 ) -> dict[str, str]:
     """Return {asset_id: most_recent_to_state} from asset_state_history.
 
-    Fetches rows ordered by created_at DESC and deduplicates in the
-    application layer (first occurrence per asset_id = most recent entry).
-    Limit is set to 3× the number of assets to capture assets with a few
-    prior scan entries without over-fetching.
+    Batches the .in_() query into chunks of _BATCH_SIZE to avoid exceeding
+    PostgREST URL length limits when querying 600+ asset UUIDs at once.
+    Results are merged and deduplicated in the application layer (first
+    occurrence per asset_id when ordered DESC = most recent entry).
     """
     if not asset_ids:
         return {}
 
-    limit = max(len(asset_ids) * 3, 100)
-    resp = (
-        client.table("asset_state_history")
-        .select("asset_id, to_state")
-        .in_("asset_id", asset_ids)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
-    rows = cast(list[dict[str, Any]], resp.data or [])
-    seen: set[str] = set()
     prev: dict[str, str] = {}
-    for row in rows:
-        aid = str(row["asset_id"])
-        if aid not in seen:
-            prev[aid] = str(row["to_state"])
-            seen.add(aid)
+
+    for start in range(0, len(asset_ids), _BATCH_SIZE):
+        chunk = asset_ids[start : start + _BATCH_SIZE]
+        limit = max(len(chunk) * 3, 100)
+        resp = (
+            client.table("asset_state_history")
+            .select("asset_id, to_state")
+            .in_("asset_id", chunk)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        for row in cast(list[dict[str, Any]], resp.data or []):
+            aid = str(row["asset_id"])
+            if aid not in prev:
+                prev[aid] = str(row["to_state"])
+
     return prev
 
 
