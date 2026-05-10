@@ -71,7 +71,7 @@ class StrategySettings:
     """clean.min_volume_7d_avg_usd — 7d avg volume floor for clean ($5M)."""
     clean_min_volume_24h_usd: float = 2_000_000.0
     """clean.min_volume_24h_usd — 24h volume floor for clean ($2M)."""
-    clean_min_atr_pct: float = 4.0
+    clean_min_atr_pct: float = 2.5
     """clean.min_atr_pct — ATR % floor for clean (lowest hard-filter floor)."""
     clean_max_atr_pct: float = 18.0
     """clean.max_atr_pct — ATR % ceiling for clean."""
@@ -262,7 +262,7 @@ def _parse_settings_dict(raw: dict[str, str]) -> StrategySettings:
         clean_min_score=_f(raw, "clean.min_score", 70.0),
         clean_min_volume_7d_avg_usd=_f(raw, "clean.min_volume_7d_avg_usd", 5_000_000.0),
         clean_min_volume_24h_usd=_f(raw, "clean.min_volume_24h_usd", 2_000_000.0),
-        clean_min_atr_pct=_f(raw, "clean.min_atr_pct", 4.0),
+        clean_min_atr_pct=_f(raw, "clean.min_atr_pct", 2.5),
         clean_max_atr_pct=_f(raw, "clean.max_atr_pct", 18.0),
         clean_max_return_3d=_f(raw, "clean.max_return_3d", 0.30),
         clean_max_price_vs_ema20_pct=_f(raw, "clean.max_price_vs_ema20_pct", 12.0),
