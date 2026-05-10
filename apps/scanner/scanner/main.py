@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 
@@ -61,13 +62,27 @@ def main(dry_run: bool = False) -> int:
         log.debug("  %s (%s) ordermin=%.8f", item.symbol, item.kraken_pair, item.min_order_size)
 
     # ── DB write (skip on dry_run or missing credentials) ─────────────────────
-    if not dry_run and cfg.scanner_env != "test" and cfg.supabase_url:
-        from scanner.db import get_client, mark_stale_assets_inactive, upsert_assets
+    db_client = None
+    scan_run_id: str | None = None
+    _do_db = not dry_run and cfg.scanner_env != "test" and bool(cfg.supabase_url)
 
+    if _do_db:
+        from scanner.db import get_client, mark_stale_assets_inactive, upsert_assets
+        from scanner.persister import create_scan_run
+
+        db_client = get_client(cfg)
         log.info("Stage 1 — upserting %d assets to DB", len(universe))
-        client = get_client(cfg)
-        upsert_assets(client, universe)
-        mark_stale_assets_inactive(client, [item.kraken_pair for item in universe])
+        upsert_assets(db_client, universe)
+        mark_stale_assets_inactive(db_client, [item.kraken_pair for item in universe])
+
+        triggered_by = os.getenv("SCANNER_TRIGGERED_BY", "manual")
+        scanner_version = os.getenv("SCANNER_VERSION")
+        scan_run_id = create_scan_run(
+            db_client,
+            triggered_by=triggered_by,
+            scanner_version=scanner_version,
+        )
+        log.info("Stage 1 — scan run created: %s", scan_run_id)
     else:
         log.info("Stage 1 — skipping DB write (dry_run=%s, env=%s)", dry_run, cfg.scanner_env)
 
@@ -165,12 +180,41 @@ def main(dry_run: bool = False) -> int:
             len(selection_result.ugly),
         )
 
+    # ── Stage 7: Run persister (DB writes) ──────────────────────────────────────
+    if _do_db and db_client and scan_run_id:
+        from scanner.persister import complete_scan_run, fail_scan_run, persist_run
+
+        log.info("Stage 7 — persisting run data to Supabase")
+        try:
+            persist_run(
+                db_client,
+                scan_run_id,
+                filter_result=filter_result,
+                scoring_result=scoring_result,
+                selection_result=selection_result,
+            )
+            complete_scan_run(
+                db_client,
+                scan_run_id,
+                status="completed",
+                assets_scanned=fetch_result.total_count,
+                assets_passed_filter=filter_result.passed_count,
+                candidates_clean=len(selection_result.clean),
+                candidates_ugly=len(selection_result.ugly),
+            )
+            log.info("Stage 7 complete — all tables written")
+        except Exception as exc:
+            log.exception("Stage 7 failed: %s", exc)
+            fail_scan_run(db_client, scan_run_id, error_message=str(exc))
+    else:
+        log.info(
+            "Stage 7 — skipping DB writes (dry_run=%s). %d candidates computed in-memory.",
+            dry_run,
+            selection_result.total_count,
+        )
+
     # ── Remaining stages not yet implemented ──────────────────────────────────
-    log.warning(
-        "Stages 7–10 not yet implemented (PRs 10–11). "
-        "%d total candidates ready for DB persistence.",
-        selection_result.total_count,
-    )
+    log.warning("Stage 8 (alerts) not yet implemented (PR 11).")
     return 0
 
 
