@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/candidates", label: "Candidates", icon: ListOrdered, exact: false },
-  { href: "/history", label: "Scan History", icon: History, exact: false },
+  { href: "/scans", label: "Scan History", icon: History, exact: false },
   { href: "/alerts", label: "Alert History", icon: Bell, exact: false },
   { href: "/settings", label: "Settings", icon: Settings, exact: false },
 ] as const;
