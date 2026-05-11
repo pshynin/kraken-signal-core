@@ -183,4 +183,6 @@ export interface CandidateTableRow {
   notes: string | null;
   state: string;
   scanned_at: string;
+  market_price_at_scan: number | null;
+  distance_to_entry_pct: number | null;
 }

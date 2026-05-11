@@ -123,6 +123,8 @@ def _trade(symbol: str = "BTC") -> TradeParameters:
         expected_gain_pct=12.0,
         reward_risk_ratio=2.0,
         notes="trend:up | rsi:60",
+        current_price=51_000.0,
+        distance_to_entry_pct=-1.96,
     )
 
 

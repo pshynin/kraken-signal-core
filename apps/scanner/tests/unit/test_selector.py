@@ -21,6 +21,7 @@ from scanner.selector import (
     SelectorConfig,
     _assign_size_bucket,
     _build_notes,
+    _compute_pullback_entry,
     _compute_stop_pct,
     compute_trade_parameters,
     run_candidate_selector,
@@ -40,18 +41,21 @@ def _snap(
     vwap_state: str | None = "above",
     volume_current: float | None = 1200.0,
     volume_ma_20: float | None = 1000.0,
+    ema_20: float | None = None,
+    ema_50: float | None = None,
+    vwap: float | None = None,
 ) -> IndicatorSnapshot:
     return IndicatorSnapshot(
         symbol="X",
         timeframe="4h",
         snapshot_time="",
-        ema_20=None,
-        ema_50=None,
+        ema_20=ema_20,
+        ema_50=ema_50,
         ema_200=None,
         price_vs_ema20_pct=price_vs_ema20_pct,
         price_vs_ema50_pct=None,
         price_vs_ema200_pct=None,
-        vwap=None,
+        vwap=vwap,
         price_vs_vwap_pct=None,
         rsi_14=rsi_14,
         atr_14=None,
@@ -242,10 +246,9 @@ def test_trade_params_entry_zone_ordered() -> None:
     assert tp.entry_price_low <= tp.entry_price_high
 
 
-def test_trade_params_entry_zone_symmetric() -> None:
+def test_trade_params_entry_high_below_current_price() -> None:
     tp = compute_trade_parameters(_metrics(price_usd=100.0), _indicator(), _score(), "clean", _CFG)
-    assert tp.entry_price_low == pytest.approx(99.5)
-    assert tp.entry_price_high == pytest.approx(100.5)
+    assert tp.entry_price_high < 100.0
 
 
 def test_trade_params_rr_respects_clean_minimum() -> None:
@@ -297,6 +300,51 @@ def test_notes_string_contains_rsi() -> None:
     ind = _indicator(rsi_14=63.0)
     notes = _build_notes(_metrics(), ind)
     assert "rsi:63" in notes
+
+
+# ── _compute_pullback_entry ─────────────────────────────────────────────────
+
+
+def test_pullback_entry_always_below_price() -> None:
+    ind = _indicator()  # no ema/vwap — falls back to ATR
+    entry = _compute_pullback_entry(100.0, ind, 8.0)
+    assert entry < 100.0
+
+
+def test_pullback_entry_uses_ema20_when_available() -> None:
+    ind = _indicator(ema_20=94.0)  # 6 % below price → qualifies
+    entry = _compute_pullback_entry(100.0, ind, 8.0)
+    assert entry == pytest.approx(94.0 * 1.0025)
+
+
+def test_pullback_entry_picks_highest_qualifying_support() -> None:
+    ind = _indicator(ema_20=94.0, ema_50=88.0)  # ema_20 is closer → preferred
+    entry = _compute_pullback_entry(100.0, ind, 8.0)
+    assert entry == pytest.approx(94.0 * 1.0025)
+
+
+def test_pullback_entry_ignores_support_too_close_to_price() -> None:
+    ind = _indicator(ema_20=99.5)  # only 0.5 % below — below min discount
+    entry = _compute_pullback_entry(100.0, ind, 8.0)
+    assert entry < 100.0 * 0.98  # ATR fallback
+
+
+def test_pullback_entry_atr_fallback_min_two_pct() -> None:
+    ind = _indicator()  # no support levels
+    entry = _compute_pullback_entry(100.0, ind, atr_pct=0.1)  # tiny ATR → 2 % floor kicks in
+    assert entry == pytest.approx(100.0 * 0.98)
+
+
+def test_trade_params_entry_below_current_price() -> None:
+    tp = compute_trade_parameters(_metrics(price_usd=100.0), _indicator(), _score(), "clean", _CFG)
+    assert tp.entry_price < tp.current_price
+    assert tp.entry_price_high < tp.current_price
+
+
+def test_trade_params_distance_to_entry_is_negative() -> None:
+    tp = compute_trade_parameters(_metrics(price_usd=100.0), _indicator(), _score(), "clean", _CFG)
+    assert tp.distance_to_entry_pct < 0
+    assert tp.current_price == pytest.approx(100.0)
 
 
 # ── run_candidate_selector ────────────────────────────────────────────────────

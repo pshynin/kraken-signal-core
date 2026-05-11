@@ -392,6 +392,9 @@ class TradeParameters:
     reward_risk_ratio: float  # (exit - entry) / (entry - stop_loss)
     notes: str | None  # scanner-generated rationale for Discord / dashboard
 
+    current_price: float  # spot price at scan time; entry_price must be strictly below this
+    distance_to_entry_pct: float  # (entry_price − current_price) / current_price × 100; always < 0
+
 
 @dataclass
 class ScoredCandidate:
