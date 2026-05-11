@@ -6,6 +6,7 @@ const STATUS_STYLES: Record<string, string> = {
   running: "bg-blue-500/15 text-blue-400 ring-blue-500/30",
   pending: "bg-muted text-muted-foreground ring-border",
   failed: "bg-red-500/15 text-red-400 ring-red-500/30",
+  timed_out: "bg-orange-500/15 text-orange-400 ring-orange-500/30",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -14,6 +15,7 @@ const STATUS_LABELS: Record<string, string> = {
   running: "Running",
   pending: "Pending",
   failed: "Failed",
+  timed_out: "Timed Out",
 };
 
 export function ScanStatusBadge({ status }: { status: string }) {
