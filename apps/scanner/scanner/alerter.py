@@ -94,14 +94,8 @@ def load_alert_config() -> AlertConfig | None:
 # ── Compact table formatting ──────────────────────────────────────────────────
 
 #  Column widths (chars):  rank=2  symbol=8  entry=15  exit=12  stop=12  rr=5  size=7  score=5
-_TABLE_HEADER = (
-    " #  Symbol    Entry            Exit          "
-    "Stop          R:R    Size     Score"
-)
-_TABLE_SEP = (
-    " ── ────────  ───────────────  ────────────  "
-    "────────────  ─────  ───────  ─────"
-)
+_TABLE_HEADER = " #  Symbol    Entry            Exit          Stop          R:R    Size     Score"
+_TABLE_SEP = " ── ────────  ───────────────  ────────────  ────────────  ─────  ───────  ─────"
 
 
 def _fmt_price(price: float) -> str:

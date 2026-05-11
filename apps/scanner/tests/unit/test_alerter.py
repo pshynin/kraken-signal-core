@@ -361,6 +361,7 @@ def test_format_table_messages_clean_label() -> None:
 
 def test_format_table_messages_splits_at_limit() -> None:
     import scanner.alerter as alerter_mod
+
     original = alerter_mod._DISCORD_MAX_CHARS
     try:
         alerter_mod._DISCORD_MAX_CHARS = 300
