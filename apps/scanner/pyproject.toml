@@ -41,6 +41,9 @@ disallow_incomplete_defs = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "--tb=short -q"
+markers = [
+    "integration: marks tests that require live Supabase + Kraken access (deselect with -m 'not integration')",
+]
 
 # ── Coverage ─────────────────────────────────────────────────────────────────
 [tool.coverage.run]
