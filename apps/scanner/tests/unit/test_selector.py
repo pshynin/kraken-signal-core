@@ -21,7 +21,6 @@ from scanner.selector import (
     SelectorConfig,
     _assign_size_bucket,
     _build_notes,
-    _compute_pullback_entry,
     _compute_stop_pct,
     compute_trade_parameters,
     run_candidate_selector,
@@ -81,6 +80,7 @@ def _metrics(
     volume_7d_avg_usd: float | None = 8_000_000.0,
     volume_ratio_20d: float | None = 1.4,
     return_7d: float | None = 0.12,
+    return_3d: float | None = 0.06,
 ) -> MarketMetrics:
     return MarketMetrics(
         symbol=symbol,
@@ -91,7 +91,7 @@ def _metrics(
         volume_24h_usd=5_000_000.0,
         volume_7d_avg_usd=volume_7d_avg_usd,
         volume_ratio_20d=volume_ratio_20d,
-        return_3d=0.06,
+        return_3d=return_3d,
         return_7d=return_7d,
         return_14d=0.18,
         return_vs_btc_7d=0.05,
@@ -302,37 +302,27 @@ def test_notes_string_contains_rsi() -> None:
     assert "rsi:63" in notes
 
 
-# ── _compute_pullback_entry ─────────────────────────────────────────────────
+# ── setup-aware entry fields ─────────────────────────────────────────────────
 
 
-def test_pullback_entry_always_below_price() -> None:
-    ind = _indicator()  # no ema/vwap — falls back to ATR
-    entry = _compute_pullback_entry(100.0, ind, 8.0)
-    assert entry < 100.0
+def test_trade_params_setup_type_is_pullback_by_default() -> None:
+    tp = compute_trade_parameters(_metrics(price_usd=100.0), _indicator(), _score(), "clean", _CFG)
+    assert tp.setup_type == "pullback"
 
 
-def test_pullback_entry_uses_ema20_when_available() -> None:
-    ind = _indicator(ema_20=94.0)  # 6 % below price → qualifies
-    entry = _compute_pullback_entry(100.0, ind, 8.0)
-    assert entry == pytest.approx(94.0 * 1.0025)
+def test_trade_params_preferred_entry_equals_entry_price() -> None:
+    tp = compute_trade_parameters(_metrics(price_usd=100.0), _indicator(), _score(), "clean", _CFG)
+    assert tp.preferred_entry == tp.entry_price
 
 
-def test_pullback_entry_picks_highest_qualifying_support() -> None:
-    ind = _indicator(ema_20=94.0, ema_50=88.0)  # ema_20 is closer → preferred
-    entry = _compute_pullback_entry(100.0, ind, 8.0)
-    assert entry == pytest.approx(94.0 * 1.0025)
+def test_trade_params_max_entry_equals_entry_price_high() -> None:
+    tp = compute_trade_parameters(_metrics(price_usd=100.0), _indicator(), _score(), "clean", _CFG)
+    assert tp.max_entry == tp.entry_price_high
 
 
-def test_pullback_entry_ignores_support_too_close_to_price() -> None:
-    ind = _indicator(ema_20=99.5)  # only 0.5 % below — below min discount
-    entry = _compute_pullback_entry(100.0, ind, 8.0)
-    assert entry < 100.0 * 0.98  # ATR fallback
-
-
-def test_pullback_entry_atr_fallback_min_two_pct() -> None:
-    ind = _indicator()  # no support levels
-    entry = _compute_pullback_entry(100.0, ind, atr_pct=0.1)  # tiny ATR → 2 % floor kicks in
-    assert entry == pytest.approx(100.0 * 0.98)
+def test_trade_params_support_anchor_type_populated() -> None:
+    tp = compute_trade_parameters(_metrics(price_usd=100.0), _indicator(), _score(), "clean", _CFG)
+    assert tp.support_anchor_type is not None
 
 
 def test_trade_params_entry_below_current_price() -> None:

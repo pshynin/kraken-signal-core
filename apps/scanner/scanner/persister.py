@@ -555,6 +555,11 @@ def upsert_candidate_recommendations(
                 "reward_risk_ratio": tp.reward_risk_ratio,
                 "notes": tp.notes,
                 "market_price_at_scan": tp.current_price,
+                "setup_type": tp.setup_type,
+                "preferred_entry": tp.preferred_entry,
+                "max_entry": tp.max_entry,
+                "support_anchor_type": tp.support_anchor_type,
+                "support_anchor_value": tp.support_anchor_value,
                 "state": f"candidate_{candidate.category}",  # 'candidate_clean' | 'candidate_ugly'
             }
         )

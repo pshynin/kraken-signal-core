@@ -395,6 +395,12 @@ class TradeParameters:
     current_price: float  # spot price at scan time; entry_price must be strictly below this
     distance_to_entry_pct: float  # (entry_price − current_price) / current_price × 100; always < 0
 
+    setup_type: str  # 'pullback' | 'breakout_trigger' | 'reclaim'
+    preferred_entry: float  # ideal limit order price; == entry_price
+    max_entry: float  # chase ceiling; == entry_price_high
+    support_anchor_type: str | None  # see entry_engine.ANCHOR_* constants
+    support_anchor_value: float | None  # raw anchor price at scan time
+
 
 @dataclass
 class ScoredCandidate:

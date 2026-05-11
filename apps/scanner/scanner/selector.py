@@ -1,4 +1,4 @@
-"""Candidate Selector + Trade Parameters — PR 9 / PR entry-limit.
+"""Candidate Selector + Trade Parameters — PR 9 / PR entry-engine.
 
 Selects the top-N clean and ugly scored candidates, then computes
 deterministic entry/exit/stop/size parameters for each.
@@ -12,21 +12,18 @@ Public API:
 
 Internal API (exposed for unit testing):
     compute_trade_parameters(metrics, indicator, score, category, config) -> TradeParameters
-    _compute_pullback_entry(price, indicator, atr_pct)                   -> float
     _assign_size_bucket(score, metrics, category)                         -> str
     _compute_stop_pct(category, atr_pct, config)                         -> float
 
-Trade parameter design
-──────────────────────
-Entry zone (pullback-first)
-    entry_price is computed by _compute_pullback_entry(), which anchors
-    to the nearest indicator support level (EMA-20, EMA-50, VWAP on 4h)
-    that is at least 1% below current price.  Falls back to an ATR-based
-    pullback (min 2%) when no support level is available.
-    entry_price_low  = entry × (1 − 0.5%)   — limit-order floor
-    entry_price_high = entry × (1 + 0.5%)   — must be < current price
-    Validity gate: entry_price_high ≥ current_price raises ValueError;
-    the candidate is then silently dropped by run_candidate_selector.
+Entry engine (see entry_engine.py)
+    setup_type = classify_setup(metrics, indicator)
+    levels     = compute_entry_levels(setup_type, metrics, indicator, config)
+    preferred_entry  = levels.preferred_entry   — ideal limit order price
+    max_entry        = levels.max_entry         — chase ceiling
+    entry_price_low  = preferred × (1 − 0.5 %)  — limit-order floor
+    Validity gates:
+      pullback/reclaim: max_entry must be < current price
+      breakout_trigger: preferred_entry must be ≤ current × (1 + max_chase_current_price_pct)
 
 Stop loss
     stop_pct is ATR-based, clamped to category constraints from migration 0012:
@@ -64,6 +61,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from scanner.entry_engine import (
+    classify_setup,
+    compute_entry_levels,
+)
 from scanner.models import (
     AssetIndicators,
     FilterResult,
@@ -118,41 +119,26 @@ class SelectorConfig:
     ugly_min_reward_risk: float = 2.5
     """ugly.min_reward_risk — minimum R:R ratio for ugly trade parameters."""
 
+    min_pullback_discount: float = 0.02
+    """Min fractional discount a support level must offer to qualify (2 %)."""
 
-# ── Internal helpers ────────────────────────────────────────────────────────────
+    max_pullback_depth: float = 0.20
+    """Max fractional distance below market before fill is deemed unreachable (20 %)."""
 
-_SUPPORT_MIN_DISCOUNT = 0.01  # support must be ≥ 1 % below current price to qualify
+    max_chase_pullback: float = 0.01
+    """max_entry margin above preferred_entry for pullback setups (1 %)."""
+
+    max_chase_breakout: float = 0.015
+    """max_entry margin above 20d high for breakout setups (1.5 %)."""
+
+    max_chase_reclaim: float = 0.02
+    """max_entry margin above reclaim anchor (2 %)."""
+
+    max_chase_current_price_pct: float = 0.03
+    """Breakout only: max preferred_entry above current price (3 %)."""
 
 
-def _compute_pullback_entry(
-    price: float,
-    indicator: AssetIndicators,
-    atr_pct: float | None,
-) -> float:
-    """Return a pullback entry price strictly below current market price.
-
-    Priority:
-        1. Highest indicator support level (EMA-20, EMA-50, VWAP on tf_4h)
-           that is ≥ _SUPPORT_MIN_DISCOUNT below price.
-           Entry = support × 1.0025 (0.25 % above support for fill headroom).
-        2. ATR-based fallback: pullback = max(atr_pct × 0.5, 2 %).
-           Entry = price × (1 − pullback_pct).
-
-    In both cases the returned value is strictly less than price.
-    """
-    snap = indicator.tf_4h
-    support_levels = [
-        level
-        for level in (snap.ema_20, snap.ema_50, snap.vwap)
-        if level is not None and level <= price * (1.0 - _SUPPORT_MIN_DISCOUNT)
-    ]
-
-    if support_levels:
-        best_support = max(support_levels)
-        return best_support * 1.0025
-
-    pullback_pct = max((atr_pct or 5.0) / 100.0 * 0.5, 0.02)
-    return price * (1.0 - pullback_pct)
+# ── Internal helpers ─────────────────────────────────────────────────────────
 
 
 def _compute_stop_pct(
@@ -250,17 +236,29 @@ def compute_trade_parameters(
     price = metrics.price_usd
     atr_pct = metrics.atr_pct_7d
 
-    # ── Entry zone: pullback-first, anchored below current price ──────────────
-    entry_price = round(_compute_pullback_entry(price, indicator, atr_pct), 8)
-    entry_price_low = round(entry_price * 0.995, 8)
-    entry_price_high = round(entry_price * 1.005, 8)
+    # ── Entry zone: setup-aware, from entry_engine ────────────────────────────
+    setup_type = classify_setup(metrics, indicator)
+    levels = compute_entry_levels(setup_type, metrics, indicator, config)
 
-    # Validity gate: the entire entry zone must sit below the current market price.
-    # A long buy-limit at or above market fills immediately — not a planned entry.
-    if entry_price_high >= price:
+    entry_price = levels.preferred_entry  # alias kept for backward compat
+    entry_price_low = round(levels.preferred_entry * 0.995, 8)
+    entry_price_high = levels.max_entry  # max_entry replaces old ±0.5 % high
+
+    # Validity gate — setup-aware.
+    # pullback / reclaim: max_entry must sit entirely below market.
+    # breakout_trigger:   preferred may be above market, but capped at +max_chase_current_price_pct.
+    if setup_type != "breakout_trigger" and entry_price_high >= price:
         raise ValueError(
-            f"{metrics.symbol}: entry_high {entry_price_high} ≥ current price {price}; "
-            "rejecting above-market long entry"
+            f"{metrics.symbol}: {setup_type} max_entry {entry_price_high} "
+            f">= current price {price}; rejecting"
+        )
+    if setup_type == "breakout_trigger" and entry_price > price * (
+        1.0 + config.max_chase_current_price_pct
+    ):
+        raise ValueError(
+            f"{metrics.symbol}: breakout preferred_entry {entry_price} "
+            f"> current price × {1 + config.max_chase_current_price_pct:.3f}; "
+            "rejecting over-chased breakout"
         )
 
     # ── Stop loss ──────────────────────────────────────────────────────────────
@@ -311,6 +309,11 @@ def compute_trade_parameters(
         notes=notes,
         current_price=price,
         distance_to_entry_pct=distance_to_entry_pct,
+        setup_type=setup_type,
+        preferred_entry=levels.preferred_entry,
+        max_entry=levels.max_entry,
+        support_anchor_type=levels.support_anchor_type,
+        support_anchor_value=levels.support_anchor_value,
     )
 
 
