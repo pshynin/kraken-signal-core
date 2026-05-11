@@ -1,4 +1,3 @@
-import { Sidebar } from "@/components/shell/sidebar";
 import { CandidatesTable } from "@/components/candidates/candidates-table";
 import { fetchActiveCandidates } from "@/lib/queries/candidates";
 import type { RecommendationCategory } from "@kraken-signal/shared-types";
@@ -27,11 +26,7 @@ export default async function CandidatesPage({ searchParams }: PageProps) {
   const uglyCount = rows.filter((r) => r.category === "ugly").length;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-
-      <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-7xl px-8 py-8 space-y-6">
+    <div className="mx-auto max-w-7xl px-8 py-8 space-y-6">
           {/* Header */}
           <div className="flex items-start justify-between">
             <div>
@@ -59,8 +54,6 @@ export default async function CandidatesPage({ searchParams }: PageProps) {
 
           {/* Candidates table (tabs + sortable rows) */}
           <CandidatesTable rows={rows} initialCategory={initialCategory} />
-        </div>
-      </main>
     </div>
   );
 }

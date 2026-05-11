@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { updateSetting } from "@/app/settings/actions";
+import { updateSetting } from "@/app/(app)/settings/actions";
 import { cn } from "@/lib/utils";
 
 export interface RawSettingRow {

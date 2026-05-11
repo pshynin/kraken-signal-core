@@ -7,7 +7,7 @@ export default async function ScansPage() {
   const runs = await fetchScanRuns(50);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="mx-auto max-w-5xl px-8 py-8 space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Scan History</h1>
         <p className="mt-1 text-sm text-muted-foreground">
