@@ -10,7 +10,7 @@ chain without any network calls or DB access. Verifies:
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from scanner.filter import run_hard_filter
 from scanner.indicators import run_indicator_engine
@@ -76,7 +76,7 @@ def _bundle(
         candles_4h=_candles(250, _4H_MS, start_price, drift, volume_usd),
         candles_1h=_candles(500, _1H_MS, start_price, drift, volume_usd / 4),
         candles_30m=_candles(750, _30M_MS, start_price, drift, volume_usd / 8),
-        fetched_at=datetime.now(timezone.utc).isoformat(),
+        fetched_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -86,7 +86,7 @@ _BUNDLES = [
     _bundle("BTC", start_price=50_000.0, drift=0.002, volume_usd=200_000_000.0),
     _bundle("SOL", start_price=150.0, drift=0.002, volume_usd=20_000_000.0),
     _bundle("ALT", start_price=0.50, drift=0.002, volume_usd=900_000.0),
-    _bundle("TINY", start_price=0.01, drift=0.002, volume_usd=30_000.0),  # 6*30k=$180k/day < $300k floor
+    _bundle("TINY", start_price=0.01, drift=0.002, volume_usd=30_000.0),  # $180k/day < $300k floor
 ]
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -120,7 +120,9 @@ def test_scoring_engine_produces_scores() -> None:
     filter_result = run_hard_filter(
         _BUNDLES, ind_result.successful, config=default_settings().to_hard_filter_config()
     )
-    scoring_result = run_scoring_engine(filter_result, config=default_settings().to_scoring_config())
+    scoring_result = run_scoring_engine(
+        filter_result, config=default_settings().to_scoring_config()
+    )
 
     assert len(scoring_result.scores) == filter_result.passed_count
     for scored in scoring_result.scores:
@@ -133,7 +135,9 @@ def test_candidate_selector_output_is_consistent() -> None:
     filter_result = run_hard_filter(
         _BUNDLES, ind_result.successful, config=default_settings().to_hard_filter_config()
     )
-    scoring_result = run_scoring_engine(filter_result, config=default_settings().to_scoring_config())
+    scoring_result = run_scoring_engine(
+        filter_result, config=default_settings().to_scoring_config()
+    )
     selection_result = run_candidate_selector(
         scoring_result, filter_result, config=default_settings().to_selector_config()
     )
@@ -156,7 +160,9 @@ def test_full_pipeline_returns_no_exception() -> None:
     filter_result = run_hard_filter(
         _BUNDLES, ind_result.successful, config=default_settings().to_hard_filter_config()
     )
-    scoring_result = run_scoring_engine(filter_result, config=default_settings().to_scoring_config())
+    scoring_result = run_scoring_engine(
+        filter_result, config=default_settings().to_scoring_config()
+    )
     selection_result = run_candidate_selector(
         scoring_result, filter_result, config=default_settings().to_selector_config()
     )
