@@ -1,6 +1,6 @@
-"""Alert Formatter + Discord Dispatcher — PR 11.
+"""Alert Formatter + Discord Dispatcher — PR 11 / PR 22.
 
-Formats Discord embeds for clean and ugly candidates, enforces an 8-hour
+Formats Discord messages for clean and ugly candidates, enforces an 8-hour
 deduplication window, POSTs to configured webhook URLs, and records every
 delivery attempt to alerts_sent. On a successful POST, the corresponding
 candidate_recommendations row is transitioned to state='alerted' and a
@@ -8,7 +8,8 @@ history row is written via state_machine.record_alerted_transition().
 
 Public API:
     load_alert_config()                         -> AlertConfig | None
-    format_candidate_embed(candidate)           -> dict[str, Any]
+    format_table_messages(candidates, cat, ts)  -> list[str]  (compact table)
+    format_candidate_embed(candidate)           -> dict[str, Any]  (legacy)
     run_alerter(client, scan_run_id,
                 asset_id_map, selection_result,
                 config)                         -> int  (alerts sent)
@@ -41,7 +42,7 @@ from typing import Any, cast
 import httpx
 from supabase import Client
 
-from scanner.models import ScoredCandidate, SelectionResult
+from scanner.models import ScoredCandidate, SelectionResult, TradeParameters
 from scanner.state_machine import record_alerted_transition
 
 log = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ log = logging.getLogger(__name__)
 # ── Discord embed colours (decimal) ──────────────────────────────────────────
 _COLOR_CLEAN = 0x00C896  # teal-green — bullish confidence
 _COLOR_UGLY = 0xF59E0B  # amber      — speculative / higher risk
+_DISCORD_MAX_CHARS = 1900  # conservative limit; Discord hard cap is 2000
 
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -89,7 +91,99 @@ def load_alert_config() -> AlertConfig | None:
     )
 
 
-# ── Embed formatting ──────────────────────────────────────────────────────────
+# ── Compact table formatting ──────────────────────────────────────────────────
+
+#  Column widths (chars):  rank=2  symbol=8  entry=15  exit=12  stop=12  rr=5  size=7  score=5
+_TABLE_HEADER = " #  Symbol    Entry            Exit          Stop          R:R    Size     Score"
+_TABLE_SEP = " ── ────────  ───────────────  ────────────  ────────────  ─────  ───────  ─────"
+
+
+def _fmt_price(price: float) -> str:
+    """Format a price with adaptive decimal places for compact display."""
+    if price >= 10_000:
+        return f"{price:,.0f}"
+    if price >= 1_000:
+        return f"{price:,.1f}"
+    if price >= 100:
+        return f"{price:.2f}"
+    if price >= 10:
+        return f"{price:.3f}"
+    if price >= 1:
+        return f"{price:.4f}"
+    if price >= 0.01:
+        return f"{price:.5f}"
+    if price >= 0.0001:
+        return f"{price:.7f}"
+    return f"{price:.2e}"
+
+
+def _fmt_entry(tp: TradeParameters) -> str:
+    """Format entry zone as 'low–high' when both bounds are present."""
+    if tp.entry_price_low is not None and tp.entry_price_high is not None:
+        return f"{_fmt_price(tp.entry_price_low)}–{_fmt_price(tp.entry_price_high)}"
+    return _fmt_price(tp.entry_price)
+
+
+def _table_row(rank: int, candidate: ScoredCandidate) -> str:
+    """Build one fixed-width table row for a candidate."""
+    tp = candidate.trade
+    score = candidate.score
+    symbol = candidate.symbol[:8].ljust(8)
+    entry = _fmt_entry(tp)[:15].ljust(15)
+    exit_ = _fmt_price(tp.exit_price)[:12].ljust(12)
+    stop = _fmt_price(tp.stop_loss)[:12].ljust(12)
+    rr = f"{tp.reward_risk_ratio:.1f}x"[:5].ljust(5)
+    size = tp.suggested_size_bucket[:7].ljust(7)
+    sc = f"{score.score_total:.1f}"[:5]
+    return f" {rank:<2} {symbol}  {entry}  {exit_}  {stop}  {rr}  {size}  {sc}"
+
+
+def format_table_messages(
+    candidates: list[ScoredCandidate],
+    category: str,
+    now_utc: str,
+) -> list[str]:
+    """Format candidates as compact monospace table message(s).
+
+    Builds one or more Discord plain-text messages (each under
+    _DISCORD_MAX_CHARS) containing a ```code-block``` table.
+    Splits by rows when the full table would exceed the limit.
+
+    Args:
+        candidates: Ordered list of non-deduped candidates to include.
+        category:   'clean' or 'ugly'.
+        now_utc:    ISO-8601 UTC string used in the footer line.
+
+    Returns:
+        List of message strings, each safe to POST to a Discord webhook.
+    """
+    is_clean = category == "clean"
+    emoji = "🟢" if is_clean else "🟡"
+    label = "Clean" if is_clean else "Ugly"
+    n = len(candidates)
+    heading = f"{emoji} **{label} Candidates** — {n} setup{'s' if n != 1 else ''}"
+    footer = f"*{now_utc}*"
+    rows = [_table_row(i + 1, c) for i, c in enumerate(candidates)]
+
+    def _build(subset: list[str]) -> str:
+        body = "\n".join([_TABLE_HEADER, _TABLE_SEP] + subset)
+        return f"{heading}\n```\n{body}\n```\n{footer}"
+
+    messages: list[str] = []
+    chunk: list[str] = []
+    for row in rows:
+        candidate_chunk = chunk + [row]
+        if len(_build(candidate_chunk)) > _DISCORD_MAX_CHARS and chunk:
+            messages.append(_build(chunk))
+            chunk = [row]
+        else:
+            chunk = candidate_chunk
+    if chunk:
+        messages.append(_build(chunk))
+    return messages
+
+
+# ── Embed formatting (legacy) ────────────────────────────────────────────────────
 
 
 def format_candidate_embed(candidate: ScoredCandidate) -> dict[str, Any]:
@@ -269,14 +363,12 @@ def run_alerter(
 ) -> int:
     """Send Discord alerts for new clean + ugly candidates.
 
-    For each candidate (up to max_clean / max_ugly per run):
-        1. Dedup check — skip if already alerted within dedup_window_hours.
-        2. Format Discord embed.
-        3. POST to webhook (httpx, synchronous, 10 s timeout).
-        4. Insert alerts_sent row (delivery_status = sent | failed).
-        5. On success only:
-               update candidate_recommendations.state → 'alerted'
-               write asset_state_history: candidate_* → alerted
+    Per category (clean / ugly):
+        1. Trim to max_n, resolve asset IDs, run dedup check per candidate.
+        2. Format all qualifying candidates as a compact table message.
+        3. POST each message chunk to the webhook (one POST per chunk).
+        4. Insert one alerts_sent row per candidate (sent | failed together).
+        5. On success: update state → 'alerted'; write state history row.
 
     Args:
         asset_id_map:     {symbol: asset_uuid} — returned by persist_run().
@@ -296,13 +388,14 @@ def run_alerter(
         channel: str,
         max_n: int,
     ) -> int:
-        sent = 0
+        now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        to_alert: list[tuple[ScoredCandidate, str]] = []
         for candidate in candidates[:max_n]:
             asset_id = asset_id_map.get(candidate.symbol)
             if not asset_id:
                 log.warning("run_alerter: no asset_id for %s — skipping", candidate.symbol)
                 continue
-
             if _is_already_alerted(client, asset_id, cutoff_iso):
                 log.info(
                     "%s already alerted within %dh window — skipping",
@@ -310,49 +403,61 @@ def run_alerter(
                     config.dedup_window_hours,
                 )
                 continue
+            to_alert.append((candidate, asset_id))
 
-            embed = format_candidate_embed(candidate)
-            payload: dict[str, Any] = {"embeds": [embed]}
-            success = False
-            err_msg: str | None = None
+        if not to_alert:
+            return 0
 
+        category = to_alert[0][0].category
+        messages = format_table_messages([c for c, _ in to_alert], category, now_utc)
+        shared_payload: dict[str, Any] = {"content": messages[0]}
+
+        success = True
+        err_msg: str | None = None
+        for msg in messages:
             try:
-                _post_to_webhook(webhook_url, payload)
-                success = True
-                log.info(
-                    "Discord alert sent: %s  rank=%d  category=%s",
-                    candidate.symbol,
-                    candidate.rank,
-                    candidate.category,
-                )
+                _post_to_webhook(webhook_url, {"content": msg})
             except Exception as exc:
+                success = False
                 err_msg = str(exc)
-                log.warning("Discord POST failed for %s: %s", candidate.symbol, exc)
+                log.warning(
+                    "Discord POST failed for %s batch (channel=%s): %s",
+                    category,
+                    channel,
+                    exc,
+                )
+                break
 
+        sent = 0
+        for candidate, asset_id in to_alert:
             _record_alert_sent(
                 client,
                 scan_run_id,
                 asset_id,
                 channel,
                 webhook_url,
-                payload,
+                shared_payload,
                 success=success,
                 error_message=err_msg,
             )
-
             if success:
-                from_state = f"candidate_{candidate.category}"
                 _update_recommendation_state(client, scan_run_id, asset_id, "alerted")
                 record_alerted_transition(
                     client,
                     scan_run_id,
                     asset_id,
-                    from_state=from_state,
+                    from_state=f"candidate_{candidate.category}",
                     metadata={
                         "symbol": candidate.symbol,
                         "rank": candidate.rank,
                         "score_total": candidate.score.score_total,
                     },
+                )
+                log.info(
+                    "Discord alert recorded: %s rank=%d category=%s",
+                    candidate.symbol,
+                    candidate.rank,
+                    candidate.category,
                 )
                 sent += 1
 
