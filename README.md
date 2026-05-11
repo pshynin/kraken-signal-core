@@ -231,10 +231,15 @@ Manual trigger: GitHub Actions → scanner workflow → "Run workflow".
 | PR 14 | Candidate tables UI | ✅ Done |
 | PR 15 | Scan history + alert history pages | ✅ Done |
 | PR 16 | Settings / config UI | ✅ Done |
-| PR 17 | Docker + on-prem portability | 🔜 Pending |
+| PR 17 | Docker + on-prem portability | ✅ Done |
 | PR 18 | End-to-end smoke tests + observability | ✅ Done |
 | PR 19 | Global app shell — shared sidebar layout | ✅ Done |
+| PR 20 | Unique-symbol candidate model + correct counts | 🔜 Pending |
 | PR 21 | Scan run finalization + `timed_out` status | ✅ Done |
+| PR 22 | Discord compact table alert redesign | 🔜 Pending |
+| PR 23 | Size bucket redesign (8 tiers) | 🔜 Pending |
+| PR 24 | Denylist / policy exclusion layer | 🔜 Pending |
+| PR 25 | Diagnostics + introspection improvements | 🔜 Pending |
 
 ---
 
