@@ -10,7 +10,7 @@ Scans the full Kraken tradable universe on a schedule, ranks candidates for a fi
 ## Architecture
 
 ```
-GitHub Actions (cron: every 4 hours)
+GitHub Actions (cron: every 6 hours)
   └── apps/scanner  (Python)
         ├── Universe loader        — Kraken AssetPairs API → filtered USD spot pairs
         ├── Data fetcher           — OHLCV via ccxt (4H / 1H / 30m)
@@ -25,7 +25,8 @@ GitHub Actions (cron: every 4 hours)
 Vercel (always-on)
   └── apps/web  (Next.js 15)
         └── Read-only dashboard over Supabase
-              ├── /             — Current candidate tables + system health
+              ├── /             — Pipeline health + last run summary
+              ├── /candidates   — Clean + ugly candidate tables
               ├── /scans        — Scan run history
               ├── /alerts       — Alert delivery log
               └── /settings     — Threshold + webhook configuration
@@ -40,20 +41,21 @@ kraken-signal-core/
 ├── apps/
 │   ├── scanner/              # Python scanner service
 │   │   ├── scanner/          # Source package
-│   │   │   ├── main.py       # Entrypoint / orchestrator
-│   │   │   ├── universe.py   # Kraken universe loader        (PR 4)
-│   │   │   ├── data_fetcher.py                               (PR 5)
-│   │   │   ├── indicators.py                                 (PR 6)
-│   │   │   ├── hard_filter.py                                (PR 7)
-│   │   │   ├── metrics.py                                    (PR 7)
-│   │   │   ├── scorer.py                                     (PR 8)
-│   │   │   ├── selector.py                                   (PR 9)
-│   │   │   ├── trade_params.py                               (PR 9)
-│   │   │   ├── state_machine.py                              (PR 10)
-│   │   │   ├── persister.py                                  (PR 10)
-│   │   │   ├── alerter.py                                    (PR 11)
-│   │   │   ├── settings.py   # Load strategy_settings from DB
-│   │   │   └── models.py     # Python dataclasses / contracts
+│   │   │   ├── main.py           # Entrypoint / orchestrator
+│   │   │   ├── config.py         # Env-var config loader
+│   │   │   ├── db.py             # Supabase client factory
+│   │   │   ├── universe.py       # Kraken universe loader
+│   │   │   ├── fetcher.py        # OHLCV via ccxt (4H / 1H / 30m)
+│   │   │   ├── indicators.py     # EMA / VWAP / RSI / ATR
+│   │   │   ├── filter.py         # Hard-filter exclusion rules
+│   │   │   ├── metrics.py        # Market metric calculations
+│   │   │   ├── scoring.py        # 9-factor scoring engine
+│   │   │   ├── selector.py       # Candidate selector + trade params
+│   │   │   ├── state_machine.py  # Asset lifecycle state transitions
+│   │   │   ├── persister.py      # Bulk upserts + run finalization
+│   │   │   ├── alerter.py        # Discord alert dispatcher
+│   │   │   ├── settings.py       # strategy_settings DB loader
+│   │   │   └── models.py         # Python dataclasses / contracts
 │   │   └── tests/
 │   └── web/                  # Next.js 15 dashboard
 ├── packages/
@@ -227,10 +229,12 @@ Manual trigger: GitHub Actions → scanner workflow → "Run workflow".
 | PR 12 | Scheduled scan runner + GH Actions | ✅ Done |
 | PR 13 | Next.js dashboard scaffold + auth | ✅ Done |
 | PR 14 | Candidate tables UI | ✅ Done |
-| PR 15 | Scan history + alert history pages | 🔜 Pending |
-| PR 16 | Settings / config UI | 🔜 Pending |
+| PR 15 | Scan history + alert history pages | ✅ Done |
+| PR 16 | Settings / config UI | ✅ Done |
 | PR 17 | Docker + on-prem portability | 🔜 Pending |
-| PR 18 | End-to-end smoke tests + observability | 🔜 Pending |
+| PR 18 | End-to-end smoke tests + observability | ✅ Done |
+| PR 19 | Global app shell — shared sidebar layout | ✅ Done |
+| PR 21 | Scan run finalization + `timed_out` status | ✅ Done |
 
 ---
 
