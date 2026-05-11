@@ -114,6 +114,11 @@ def _trade(symbol: str = "BTC") -> TradeParameters:
         notes="trend:up",
         current_price=51_000.0,
         distance_to_entry_pct=-1.96,
+        setup_type="pullback",
+        preferred_entry=50_000.0,
+        max_entry=50_500.0,
+        support_anchor_type="ema_20",
+        support_anchor_value=49_875.0,
     )
 
 
