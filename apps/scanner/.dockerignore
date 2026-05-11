@@ -1,0 +1,29 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Tests and dev tools
+tests/
+requirements-dev.txt
+
+# Secrets — never bake into the image
+.env
+.env.*
+
+# Git
+.git/
+.gitignore
+
+# Docs
+*.md
