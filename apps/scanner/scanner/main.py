@@ -91,25 +91,15 @@ def main(dry_run: bool = False) -> int:
 
     if _do_db:
         from scanner.db import get_client, mark_stale_assets_inactive, upsert_assets
-        from scanner.persister import create_scan_run
 
         db_client = get_client(cfg)
         log.info("Stage 1 — upserting %d assets to DB", len(universe))
         upsert_assets(db_client, universe)
         mark_stale_assets_inactive(db_client, [item.kraken_pair for item in universe])
-
-        triggered_by = os.getenv("SCANNER_TRIGGERED_BY", "manual")
-        scanner_version = os.getenv("SCANNER_VERSION")
-        scan_run_id = create_scan_run(
-            db_client,
-            triggered_by=triggered_by,
-            scanner_version=scanner_version,
-        )
-        log.info("Stage 1 — scan run created: %s", scan_run_id)
     else:
         log.info("Stage 1 — skipping DB write (dry_run=%s, env=%s)", dry_run, cfg.scanner_env)
 
-    # ── Load strategy settings ───────────────────────────────────────────
+    # ── Load strategy settings (before scan run so timeout threshold is available) ───
     from scanner.settings import default_settings, load_strategy_settings
 
     if _do_db and db_client:
@@ -121,6 +111,22 @@ def main(dry_run: bool = False) -> int:
     else:
         strategy = default_settings()
         log.info("Stage 1 — using default strategy settings (dry_run=%s)", dry_run)
+
+    if _do_db and db_client:
+        from scanner.persister import create_scan_run, timeout_stale_scan_runs
+
+        stale = timeout_stale_scan_runs(db_client, strategy.scanner_run_timeout_minutes)
+        if stale:
+            log.info("Stage 1 — timed out %d stale run(s)", stale)
+
+        triggered_by = os.getenv("SCANNER_TRIGGERED_BY", "manual")
+        scanner_version = os.getenv("SCANNER_VERSION")
+        scan_run_id = create_scan_run(
+            db_client,
+            triggered_by=triggered_by,
+            scanner_version=scanner_version,
+        )
+        log.info("Stage 1 — scan run created: %s", scan_run_id)
 
     # ── Stage 2: Market data fetcher ──────────────────────────────────────────
     from scanner.fetcher import fetch_market_data

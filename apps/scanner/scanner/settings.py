@@ -133,6 +133,8 @@ class StrategySettings:
     """scanner.stale_run_threshold_hours — hours before stale-run system alert fires."""
     scanner_min_trade_size_usd: float = 2000.0
     """scanner.min_trade_size_usd — minimum practical trade size ($)."""
+    scanner_run_timeout_minutes: int = 120
+    """scanner.run_timeout_minutes — minutes before a stuck running row is timed_out."""
 
     # ── Probability map ───────────────────────────────────────────────────────
     prob_map: tuple[tuple[float, float], ...] = _DEFAULT_PROB_MAP
@@ -291,6 +293,7 @@ def _parse_settings_dict(raw: dict[str, str]) -> StrategySettings:
         scanner_alert_dedup_hours=_i(raw, "scanner.alert_dedup_hours", 8),
         scanner_stale_run_threshold_hours=_i(raw, "scanner.stale_run_threshold_hours", 6),
         scanner_min_trade_size_usd=_f(raw, "scanner.min_trade_size_usd", 2000.0),
+        scanner_run_timeout_minutes=_i(raw, "scanner.run_timeout_minutes", 120),
         prob_map=_parse_prob_map(raw),
     )
 

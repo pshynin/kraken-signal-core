@@ -23,6 +23,7 @@ Public API
     fail_scan_run(client, scan_run_id, error_message)               # call on early exit
     complete_scan_run(client, scan_run_id, *, ...)                  # call AFTER persist_run
     persist_run(client, scan_run_id, *, filter_result, ...)         # call after Stage 6
+    timeout_stale_scan_runs(client, timeout_minutes) -> int         # call BEFORE create_scan_run
 
 Internal (exposed for unit tests):
     fetch_asset_id_map(client, symbols)             -> dict[str, str]
@@ -35,7 +36,7 @@ Internal (exposed for unit tests):
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from supabase import Client
@@ -71,6 +72,51 @@ def _batch_upsert(client: Client, table: str, rows: list[dict[str, Any]], on_con
 
 
 # ── scan_runs lifecycle ───────────────────────────────────────────────────────
+
+
+def timeout_stale_scan_runs(client: Client, timeout_minutes: int) -> int:
+    """Mark stuck running scan_runs as timed_out.
+
+    Only affects rows where ALL three conditions hold:
+        - status = 'running'
+        - completed_at IS NULL  (a finalized row can never be stuck)
+        - started_at < now() − timeout_minutes
+
+    Intentionally does not touch rows that may still be in progress;
+    the threshold is the sole guard. Increase scanner.run_timeout_minutes
+    in strategy_settings if legitimate runs take longer.
+
+    Args:
+        client:          Supabase service-role client.
+        timeout_minutes: Configurable threshold from scanner.run_timeout_minutes.
+
+    Returns:
+        Number of rows updated (0 when none are stuck).
+    """
+    cutoff = (datetime.now(UTC) - timedelta(minutes=timeout_minutes)).isoformat()
+    resp = (
+        client.table("scan_runs")
+        .update(
+            {
+                "status": "timed_out",
+                "error_message": (
+                    f"auto-timed-out: no completion recorded within {timeout_minutes}m"
+                ),
+            }
+        )
+        .eq("status", "running")
+        .is_("completed_at", "null")
+        .lt("started_at", cutoff)
+        .execute()
+    )
+    n = len(resp.data) if resp.data else 0
+    if n:
+        log.warning(
+            "timeout_stale_scan_runs: marked %d stuck run(s) as timed_out (threshold=%dm)",
+            n,
+            timeout_minutes,
+        )
+    return n
 
 
 def create_scan_run(

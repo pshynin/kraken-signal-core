@@ -29,6 +29,7 @@ from scanner.persister import (
     fail_scan_run,
     fetch_asset_id_map,
     persist_run,
+    timeout_stale_scan_runs,
     upsert_candidate_recommendations,
     upsert_candidate_scores,
     upsert_indicator_snapshots,
@@ -255,6 +256,48 @@ def test_fail_scan_run_sets_failed_with_message() -> None:
     update_payload = client.table.return_value.update.call_args[0][0]
     assert update_payload["status"] == "failed"
     assert update_payload["error_message"] == "Stage 3 crashed"
+
+
+# ── timeout_stale_scan_runs ──────────────────────────────────────────────────
+
+
+def test_timeout_stale_scan_runs_returns_count() -> None:
+    client = _client()
+    _stub = client.table.return_value.update.return_value.eq.return_value
+    _stub.is_.return_value.lt.return_value.execute.return_value.data = [
+        {"id": "stale-run-1"},
+        {"id": "stale-run-2"},
+    ]
+    n = timeout_stale_scan_runs(client, timeout_minutes=120)
+    assert n == 2
+
+
+def test_timeout_stale_scan_runs_zero_when_none_stuck() -> None:
+    client = _client()
+    _stub = client.table.return_value.update.return_value.eq.return_value
+    _stub.is_.return_value.lt.return_value.execute.return_value.data = []
+    n = timeout_stale_scan_runs(client, timeout_minutes=120)
+    assert n == 0
+
+
+def test_timeout_stale_scan_runs_filters_correctly() -> None:
+    client = _client()
+    _stub = client.table.return_value.update.return_value.eq.return_value
+    _stub.is_.return_value.lt.return_value.execute.return_value.data = []
+    timeout_stale_scan_runs(client, timeout_minutes=60)
+    client.table.assert_called_with("scan_runs")
+    update_payload = client.table.return_value.update.call_args[0][0]
+    assert update_payload["status"] == "timed_out"
+    assert "error_message" in update_payload
+    assert "60m" in update_payload["error_message"]
+
+
+def test_timeout_stale_scan_runs_uses_completed_at_null_guard() -> None:
+    client = _client()
+    chain = client.table.return_value.update.return_value.eq.return_value
+    chain.is_.return_value.lt.return_value.execute.return_value.data = []
+    timeout_stale_scan_runs(client, timeout_minutes=120)
+    chain.is_.assert_called_once_with("completed_at", "null")
 
 
 # ── fetch_asset_id_map ────────────────────────────────────────────────────────
