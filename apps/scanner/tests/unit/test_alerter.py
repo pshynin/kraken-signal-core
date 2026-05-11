@@ -15,10 +15,12 @@ import pytest
 from scanner.alerter import (
     _COLOR_CLEAN,
     _COLOR_UGLY,
+    _DISCORD_MAX_CHARS,
     AlertConfig,
     _is_already_alerted,
     _post_to_webhook,
     format_candidate_embed,
+    format_table_messages,
     load_alert_config,
     run_alerter,
 )
@@ -306,7 +308,7 @@ def test_run_alerter_respects_max_clean_alerts() -> None:
     )
     with patch("scanner.alerter._post_to_webhook") as mock_post:
         count = run_alerter(client, "run-id", asset_id_map, sel, cfg)
-    assert mock_post.call_count == 3
+    assert mock_post.call_count == 1
     assert count == 3
 
 
@@ -322,7 +324,54 @@ def test_run_alerter_returns_total_sent_count() -> None:
     assert count == 2
 
 
-# ── load_alert_config ─────────────────────────────────────────────────────────
+# ── format_table_messages ───────────────────────────────────────────────────────
+
+
+def test_format_table_messages_contains_all_symbols() -> None:
+    candidates = [_candidate("BTC", "clean", 1), _candidate("ETH", "clean", 2)]
+    now = "2026-05-11T10:00:00Z"
+    msgs = format_table_messages(candidates, "clean", now)
+    assert len(msgs) >= 1
+    combined = "".join(msgs)
+    assert "BTC" in combined
+    assert "ETH" in combined
+
+
+def test_format_table_messages_under_discord_limit() -> None:
+    candidates = [_candidate(f"C{i}", "clean", i + 1) for i in range(10)]
+    now = "2026-05-11T10:00:00Z"
+    msgs = format_table_messages(candidates, "clean", now)
+    for msg in msgs:
+        assert len(msg) <= _DISCORD_MAX_CHARS
+
+
+def test_format_table_messages_ugly_label() -> None:
+    candidates = [_candidate("ETH", "ugly", 1)]
+    msgs = format_table_messages(candidates, "ugly", "2026-05-11T10:00:00Z")
+    assert "🟡" in msgs[0]
+    assert "Ugly" in msgs[0]
+
+
+def test_format_table_messages_clean_label() -> None:
+    candidates = [_candidate("BTC", "clean", 1)]
+    msgs = format_table_messages(candidates, "clean", "2026-05-11T10:00:00Z")
+    assert "🟢" in msgs[0]
+    assert "Clean" in msgs[0]
+
+
+def test_format_table_messages_splits_at_limit() -> None:
+    import scanner.alerter as alerter_mod
+    original = alerter_mod._DISCORD_MAX_CHARS
+    try:
+        alerter_mod._DISCORD_MAX_CHARS = 300
+        candidates = [_candidate(f"T{i}", "clean", i + 1) for i in range(5)]
+        msgs = format_table_messages(candidates, "clean", "2026-05-11T10:00:00Z")
+        assert len(msgs) > 1
+    finally:
+        alerter_mod._DISCORD_MAX_CHARS = original
+
+
+# ── load_alert_config ────────────────────────────────────────────────────────────
 
 
 def test_load_alert_config_returns_none_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
