@@ -1,0 +1,25 @@
+# Crypto Momentum Alert Copilot — Scanner
+#
+# One-shot run (mirrors GitHub Actions schedule):
+#   docker compose run --rm scanner
+#
+# Dry-run (no DB writes, no Discord alerts):
+#   docker compose run --rm scanner --dry-run
+#
+# Rebuild after code changes:
+#   docker compose build
+
+services:
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kraken-scanner:local
+    env_file: .env           # copy .env.example → .env and fill in secrets
+    restart: "no"            # one-shot job — not a long-running service
+    network_mode: bridge
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
