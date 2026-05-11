@@ -65,3 +65,35 @@ jobs:
           DISCORD_WEBHOOK_CLEAN: ${{ secrets.DISCORD_WEBHOOK_CLEAN }}
           DISCORD_WEBHOOK_UGLY: ${{ secrets.DISCORD_WEBHOOK_UGLY }}
           DISCORD_WEBHOOK_SYSTEM: ${{ secrets.DISCORD_WEBHOOK_SYSTEM }}
+
+      - name: Write job summary
+        if: always()
+        working-directory: apps/scanner
+        run: |
+          if [ -f scan_summary.json ]; then
+            python - <<'EOF'
+          import json, os
+          with open("scan_summary.json") as f:
+              s = json.load(f)
+          lines = [
+              "## Scanner Run Summary",
+              "",
+              "| Field | Value |",
+              "|---|---|",
+              f"| Status | {s.get('status', '—')} |",
+              f"| Dry run | {s.get('dry_run', False)} |",
+              f"| Assets scanned | {s.get('assets_scanned', '—')} |",
+              f"| Passed filter | {s.get('assets_passed_filter', '—')} |",
+              f"| Clean candidates | {s.get('candidates_clean', 0)} |",
+              f"| Ugly candidates | {s.get('candidates_ugly', 0)} |",
+              f"| Alerts sent | {s.get('alerts_sent', 0)} |",
+              f"| Scan run ID | `{s.get('scan_run_id', '—')}` |",
+          ]
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/null")
+          with open(summary_path, "a") as f:
+              f.write("\n".join(lines) + "\n")
+          EOF
+          else
+            echo "## Scanner Run" >> $GITHUB_STEP_SUMMARY
+            echo "Run did not produce a summary (failed before completion)." >> $GITHUB_STEP_SUMMARY
+          fi

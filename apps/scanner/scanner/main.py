@@ -20,9 +20,32 @@ Pipeline stages:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
+
+
+def _send_system_alert(message: str) -> None:
+    """Fire-and-forget POST to DISCORD_WEBHOOK_SYSTEM. Never raises."""
+    url = os.getenv("DISCORD_WEBHOOK_SYSTEM", "")
+    if not url:
+        return
+    try:
+        import httpx
+
+        httpx.post(url, json={"content": message}, timeout=10)
+    except Exception:
+        pass  # observability must never crash the scanner
+
+
+def _write_summary(path: str, data: dict) -> None:  # type: ignore[type-arg]
+    """Write scan_summary.json for GHA step summary consumption."""
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
 
 
 def _configure_logging() -> None:
@@ -268,6 +291,21 @@ def main(dry_run: bool = False) -> int:
             alerts_sent=alerts_sent_count,
         )
 
+    # ── Write GHA step summary file ───────────────────────────────────────────
+    _write_summary(
+        "scan_summary.json",
+        {
+            "status": "completed" if _persist_ok or dry_run else "partial",
+            "dry_run": dry_run,
+            "assets_scanned": fetch_result.total_count,
+            "assets_passed_filter": filter_result.passed_count,
+            "candidates_clean": len(selection_result.clean),
+            "candidates_ugly": len(selection_result.ugly),
+            "alerts_sent": alerts_sent_count,
+            "scan_run_id": scan_run_id or "dry-run",
+        },
+    )
+
     return 0
 
 
@@ -281,4 +319,11 @@ if __name__ == "__main__":
         help="Run without writing to the database or sending Discord alerts.",
     )
     args = parser.parse_args()
-    sys.exit(main(dry_run=args.dry_run))
+    try:
+        sys.exit(main(dry_run=args.dry_run))
+    except Exception as exc:
+        logging.getLogger(__name__).exception("Unhandled exception — scanner crashed")
+        _send_system_alert(
+            f":rotating_light: **Scanner crashed** (unhandled exception)\n```\n{exc}\n```"
+        )
+        sys.exit(2)
