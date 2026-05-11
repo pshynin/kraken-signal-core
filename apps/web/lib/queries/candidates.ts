@@ -39,6 +39,7 @@ interface RawRow {
   notes: string | null;
   state: string;
   created_at: string;
+  market_price_at_scan: number | null;
   assets: { symbol: string } | null;
   candidate_scores: {
     score_total: number | null;
@@ -66,6 +67,11 @@ function toTableRow(raw: RawRow): CandidateTableRow {
     notes: raw.notes,
     state: raw.state,
     scanned_at: raw.created_at,
+    market_price_at_scan: raw.market_price_at_scan,
+    distance_to_entry_pct:
+      raw.market_price_at_scan != null
+        ? ((raw.entry_price - raw.market_price_at_scan) / raw.market_price_at_scan) * 100
+        : null,
   };
 }
 
@@ -84,6 +90,7 @@ export async function fetchActiveCandidates(): Promise<CandidateTableRow[]> {
         entry_price, entry_price_low, entry_price_high,
         exit_price, stop_loss, expected_gain_pct, reward_risk_ratio,
         suggested_size_bucket, notes, state, created_at,
+        market_price_at_scan,
         assets ( symbol ),
         candidate_scores ( score_total, probability_pct )
         `

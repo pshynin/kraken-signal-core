@@ -554,6 +554,7 @@ def upsert_candidate_recommendations(
                 "expected_gain_pct": tp.expected_gain_pct,
                 "reward_risk_ratio": tp.reward_risk_ratio,
                 "notes": tp.notes,
+                "market_price_at_scan": tp.current_price,
                 "state": f"candidate_{candidate.category}",  # 'candidate_clean' | 'candidate_ugly'
             }
         )

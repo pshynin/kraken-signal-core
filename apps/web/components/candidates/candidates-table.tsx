@@ -285,6 +285,18 @@ export function CandidatesTable({
                             {fmtPrice(row.entry_price_high)}
                           </div>
                         )}
+                      {row.distance_to_entry_pct != null && (
+                        <div
+                          className={cn(
+                            "text-[11px] font-mono",
+                            row.distance_to_entry_pct > -1
+                              ? "text-caution"
+                              : "text-muted-foreground"
+                          )}
+                        >
+                          {fmtPct(row.distance_to_entry_pct)} from now
+                        </div>
+                      )}
                     </div>
                   </Td>
 
