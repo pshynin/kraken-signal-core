@@ -9,7 +9,6 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import { Sidebar } from "@/components/shell/sidebar";
 import { createServerClient } from "@/lib/supabase/server";
 import { formatRelativeTime } from "@/lib/utils";
 import type { ScanRunRow } from "@kraken-signal/shared-types";
@@ -185,11 +184,7 @@ export default async function DashboardPage() {
   const { lastRun, activeAssets } = await getOverviewData();
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-
-      <main className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto px-8 py-8 space-y-8">
+    <div className="max-w-5xl mx-auto px-8 py-8 space-y-8">
           {/* Header */}
           <div>
             <h1 className="text-xl font-semibold text-foreground">Overview</h1>
@@ -230,8 +225,6 @@ export default async function DashboardPage() {
 
           {/* Last run detail */}
           {lastRun ? <LastRunCard run={lastRun} /> : <EmptyState />}
-        </div>
-      </main>
     </div>
   );
 }

@@ -39,7 +39,7 @@ export default async function SettingsPage() {
       : null;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="mx-auto max-w-5xl px-8 py-8 space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">
           Strategy Settings
