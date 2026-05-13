@@ -436,7 +436,9 @@ def test_run_alerter_uses_configured_dedup_window() -> None:
         run_alerter(client, "run-id", {"BTC": "uuid-btc"}, sel, cfg)
     after = datetime.now(UTC)
 
-    gte_call = client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.gte.call_args
+    select_chain = client.table.return_value.select.return_value
+    eq_chain = select_chain.eq.return_value.eq.return_value.eq.return_value
+    gte_call = eq_chain.gte.call_args
     assert gte_call is not None, "dedup query did not call .gte()"
     cutoff_iso = gte_call[0][1]
     cutoff = datetime.fromisoformat(cutoff_iso)
