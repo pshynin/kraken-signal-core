@@ -22,7 +22,9 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Fixed
+
+- `scanner_alert_dedup_hours` from `strategy_settings` now reaches `AlertConfig`. `load_alert_config()` accepts an optional `StrategySettings`; when provided, its `scanner_alert_dedup_hours` overrides the `AlertConfig` 8h default. Webhook URLs continue to come from environment variables only.
 
 ---
 

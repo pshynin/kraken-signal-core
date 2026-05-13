@@ -397,3 +397,49 @@ def test_load_alert_config_returns_config_when_set(monkeypatch: pytest.MonkeyPat
     assert cfg.webhook_clean == "https://clean.url"
     assert cfg.webhook_ugly == "https://ugly.url"
     assert cfg.webhook_system is None
+
+
+def test_load_alert_config_uses_strategy_dedup_hours(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strategy settings override the AlertConfig dedup window default."""
+    from scanner.settings import StrategySettings
+
+    monkeypatch.setenv("DISCORD_WEBHOOK_CLEAN", "https://clean.url")
+    monkeypatch.setenv("DISCORD_WEBHOOK_UGLY", "https://ugly.url")
+    strategy = StrategySettings(scanner_alert_dedup_hours=24)
+    cfg = load_alert_config(strategy)
+    assert cfg is not None
+    assert cfg.dedup_window_hours == 24
+
+
+def test_load_alert_config_without_strategy_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no strategy is passed, the AlertConfig default (8h) is used."""
+    monkeypatch.setenv("DISCORD_WEBHOOK_CLEAN", "https://clean.url")
+    monkeypatch.setenv("DISCORD_WEBHOOK_UGLY", "https://ugly.url")
+    cfg = load_alert_config()
+    assert cfg is not None
+    assert cfg.dedup_window_hours == 8
+
+
+def test_run_alerter_uses_configured_dedup_window() -> None:
+    """The cutoff passed to the dedup query reflects AlertConfig.dedup_window_hours."""
+    from datetime import UTC, datetime, timedelta
+
+    client = _client()
+    sel = SelectionResult(clean=[_candidate("BTC", "clean")])
+    cfg = AlertConfig(
+        webhook_clean=_CFG.webhook_clean,
+        webhook_ugly=_CFG.webhook_ugly,
+        dedup_window_hours=24,
+    )
+    before = datetime.now(UTC)
+    with patch("scanner.alerter._post_to_webhook"):
+        run_alerter(client, "run-id", {"BTC": "uuid-btc"}, sel, cfg)
+    after = datetime.now(UTC)
+
+    gte_call = client.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.gte.call_args
+    assert gte_call is not None, "dedup query did not call .gte()"
+    cutoff_iso = gte_call[0][1]
+    cutoff = datetime.fromisoformat(cutoff_iso)
+    expected_min = before - timedelta(hours=24)
+    expected_max = after - timedelta(hours=24)
+    assert expected_min <= cutoff <= expected_max

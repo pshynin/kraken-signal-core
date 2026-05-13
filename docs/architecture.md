@@ -82,8 +82,6 @@ StrategySettings (frozen dataclass; defaults match migration 0012 seed)
 
 If the DB is unreachable or `--dry-run` is set, `default_settings()` returns the same dataclass with seed defaults. The scanner can still run with a complete config object.
 
-> ⚠️ Current known gap: `scanner_alert_dedup_hours` is parsed from `strategy_settings` but is not currently wired into `AlertConfig`. `load_alert_config()` in `alerter.py` still uses the default 8h value.
-
 ## Dashboard — `apps/web`
 
 Next.js 15 App Router. All pages are **server components** that query Supabase directly through `lib/supabase/server.ts` (service-role key, server-only). Data flow:
