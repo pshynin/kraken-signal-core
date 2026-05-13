@@ -1,248 +1,99 @@
 # Crypto Momentum Alert Copilot
 
-Decision-support and alerting system for Kraken spot crypto trading.  
-Scans the full Kraken tradable universe on a schedule, ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts for actionable setups.
+Decision-support and alerting system for Kraken spot crypto trading. Scans the full Kraken USD-spot universe every 6 hours, ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts for actionable setups.
 
-> **Not an auto-trader.** Produces ranked candidates with entry / exit / stop / size recommendations for manual execution on Kraken spot.
+> **Not an auto-trader.** Produces ranked candidates with entry / exit / stop / size recommendations for **manual** execution on Kraken spot.
 
----
+## What It Does
+
+- Loads the tradable Kraken USD-spot universe on a schedule (every 6 hours, via GitHub Actions cron).
+- Fetches OHLCV across three timeframes (4h / 1h / 30m) and computes technical indicators.
+- Applies hard filters and a deterministic 9-factor scoring model, producing ranked **Clean** and **Ugly** candidate tables.
+- Computes setup-aware entry, exit, stop, and size recommendations for each candidate.
+- Persists everything to Supabase and pushes Discord alerts with dedup and per-run safety caps.
+- Surfaces results in a read-only Next.js dashboard for review.
+
+For the trading workflow this is designed around — the fixed 10-day cycle, Day-1 entries through Day-10 force-close, Clean vs Ugly sizing — see [Trading Framework](#trading-framework) at the bottom of this file.
 
 ## Architecture
 
-```
-GitHub Actions (cron: every 6 hours)
-  └── apps/scanner  (Python)
-        ├── Universe loader        — Kraken AssetPairs API → filtered USD spot pairs
-        ├── Data fetcher           — OHLCV via ccxt (4H / 1H / 30m)
-        ├── Indicator engine       — EMA 20/50/200, VWAP, RSI 14, ATR 14 (pandas-ta)
-        ├── Hard filter            — exclusion rules (vertical, illiquid, broken structure)
-        ├── Scoring engine         — 9-factor model, 0–100 score, deterministic
-        ├── Candidate selector     — ranked Clean + Ugly tables with trade params
-        ├── State machine          — tracks asset lifecycle across scans
-        ├── Run persister          — bulk upserts to Supabase Postgres
-        └── Alert dispatcher       — dedup + Discord webhook POST
+A scheduled Python scanner writes to Supabase Postgres; a read-only Next.js dashboard reads from the same database. Supabase is the only shared state — there is no direct scanner ↔ web link. Discord is fire-and-forget output from the scanner only.
 
-Vercel (always-on)
-  └── apps/web  (Next.js 15)
-        └── Read-only dashboard over Supabase
-              ├── /             — Pipeline health + last run summary
-              ├── /candidates   — Clean + ugly candidate tables
-              ├── /scans        — Scan run history
-              ├── /alerts       — Alert delivery log
-              └── /settings     — Threshold + webhook configuration
-```
+See [docs/architecture.md](docs/architecture.md) for the 8-stage pipeline, the contract between scanner and web, the configuration flow, and scheduling / concurrency details.
 
----
+## Stack
 
-## Repo Structure
+- **Scanner** — Python 3.11+ (CI uses 3.12); ccxt, pandas-ta, supabase-py, httpx.
+- **Web** — Next.js 15 (App Router, React 19), TypeScript 5.7, Tailwind, Supabase JS.
+- **DB** — Supabase Postgres; migrations via the Supabase CLI.
+- **Tooling** — pnpm 9 workspaces, ruff, mypy, pytest, ESLint.
+- **Runtime** — GitHub Actions cron (scanner), Vercel (web), Docker (scanner portability).
 
-```
-kraken-signal-core/
-├── apps/
-│   ├── scanner/              # Python scanner service
-│   │   ├── scanner/          # Source package
-│   │   │   ├── main.py           # Entrypoint / orchestrator
-│   │   │   ├── config.py         # Env-var config loader
-│   │   │   ├── db.py             # Supabase client factory
-│   │   │   ├── universe.py       # Kraken universe loader
-│   │   │   ├── fetcher.py        # OHLCV via ccxt (4H / 1H / 30m)
-│   │   │   ├── indicators.py     # EMA / VWAP / RSI / ATR
-│   │   │   ├── filter.py         # Hard-filter exclusion rules
-│   │   │   ├── metrics.py        # Market metric calculations
-│   │   │   ├── scoring.py        # 9-factor scoring engine
-│   │   │   ├── selector.py       # Candidate selector + trade params
-│   │   │   ├── state_machine.py  # Asset lifecycle state transitions
-│   │   │   ├── persister.py      # Bulk upserts + run finalization
-│   │   │   ├── alerter.py        # Discord alert dispatcher
-│   │   │   ├── settings.py       # strategy_settings DB loader
-│   │   │   └── models.py         # Python dataclasses / contracts
-│   │   └── tests/
-│   └── web/                  # Next.js 15 dashboard
-├── packages/
-│   └── shared-types/         # Shared TypeScript contracts
-├── supabase/
-│   └── migrations/           # Versioned Postgres schema     (PR 2)
-└── .github/
-    └── workflows/
-        ├── ci.yml            # PR checks (lint, type-check, test, build)
-        └── scanner.yml       # Scheduled scanner run          (PR 12)
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js >= 20 and pnpm >= 9
-- Python >= 3.11
-- [Supabase CLI](https://supabase.com/docs/guides/cli) (for migrations)
-- A Supabase project (free tier is fine)
-- A Discord server with webhook URLs configured
-
-### 1. Clone and install dependencies
+## Quickstart
 
 ```bash
 git clone https://github.com/yourname/kraken-signal-core.git
 cd kraken-signal-core
 pnpm install
-```
 
-### 2. Configure environment
-
-```bash
-# Scanner
 cp .env.example apps/scanner/.env
-# Fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DISCORD_WEBHOOK_*
-
-# Dashboard
 cp .env.example apps/web/.env.local
-# Fill in all variables including NEXT_PUBLIC_* and DASHBOARD_PASSCODE
-```
 
-### 3. Apply the database schema
-
-```bash
-# Link to your Supabase project:
 supabase link --project-ref YOUR_PROJECT_REF
-
-# Push all migrations:
 supabase db push
-```
 
-### 4. Run the scanner locally
-
-```bash
-cd apps/scanner
-pip install -r requirements-dev.txt
-python -m scanner.main
-# Add --dry-run to skip DB writes and Discord POSTs
+cd apps/scanner && pip install -r requirements-dev.txt
 python -m scanner.main --dry-run
+
+cd ../web && pnpm dev
 ```
 
-### 5. Run the dashboard locally
+Fill in `apps/scanner/.env` with your Supabase + Discord credentials, and `apps/web/.env.local` with your Supabase keys plus `DASHBOARD_PASSCODE`. `.env.example` at the repo root is the source of truth for all environment variables. The scanner's `--dry-run` flag skips DB writes and Discord posts. The dashboard runs at <http://localhost:3000>. Full setup, test workflow, Supabase migration workflow, and common issues live in [docs/local-dev.md](docs/local-dev.md).
 
-```bash
-cd apps/web
-pnpm dev
-# Open http://localhost:3000
-# Enter DASHBOARD_PASSCODE when prompted
+## Repo Layout
+
+```text
+apps/scanner/             Python scanner pipeline (core logic)
+apps/web/                 Next.js 15 read-only dashboard
+packages/shared-types/    TS contracts mirroring scanner models.py
+supabase/migrations/      Versioned Postgres schema
+.github/workflows/        CI + scheduled scanner cron
+docs/                     Long-form documentation
 ```
 
----
+See [CLAUDE.md](CLAUDE.md) for contributor and AI-assistant guidance.
 
-## Environment Variables
+## Status
 
-See [`.env.example`](.env.example) for the full list with descriptions.
+The scanner pipeline and dashboard are running end-to-end on a 6-hour cron. For shipped history and what's next:
 
-### GitHub Actions Repository Secrets
+- [`CHANGELOG.md`](CHANGELOG.md) — what has shipped (curated milestones).
+- [`docs/roadmap.md`](docs/roadmap.md) — what's planned and known open issues.
 
-Set in: **GitHub → Settings → Secrets and variables → Actions → Repository secrets**
+## Documentation
 
-| Secret | Required | Description |
-|---|---|---|
-| `SUPABASE_URL` | ✅ | Supabase project URL (`https://xxx.supabase.co`) |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Service role key — full DB access, bypasses RLS |
-| `DISCORD_WEBHOOK_CLEAN` | ✅ | Webhook URL for `#clean-candidates` channel |
-| `DISCORD_WEBHOOK_UGLY` | ✅ | Webhook URL for `#ugly-candidates` channel |
-| `DISCORD_WEBHOOK_SYSTEM` | ⚠️ optional | Webhook URL for `#system-alerts` channel |
-
-### Vercel Environment Variables
-
-Set in: **Vercel → Project → Settings → Environment Variables**
-
-| Variable | Description |
+| Doc | What it covers |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Same value as `SUPABASE_URL` — exposed to browser |
-| `SUPABASE_URL` | Supabase project URL — server-side |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Anon/publishable key — safe for browser |
-| `SUPABASE_SERVICE_ROLE_KEY` | Secret key — server components only, never browser |
-| `DASHBOARD_PASSCODE` | Passcode for the `/login` gate — choose any string |
-
-### Local Development
-
-**`apps/scanner/.env`** — scanner only:
-```bash
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-DISCORD_WEBHOOK_CLEAN=https://discord.com/api/webhooks/...
-DISCORD_WEBHOOK_UGLY=https://discord.com/api/webhooks/...
-DISCORD_WEBHOOK_SYSTEM=https://discord.com/api/webhooks/...
-```
-
-**`apps/web/.env.local`** — dashboard only:
-```bash
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-DASHBOARD_PASSCODE=your-passcode
-```
-
-Both files are git-ignored and will never be committed.
-
----
-
-## Scanner Run Schedule
-
-Configured in `.github/workflows/scanner.yml` as a cron expression.  
-Default: `0 */6 * * *` (every 6 hours at 00:00, 06:00, 12:00, 18:00 UTC).  
-Manual trigger: GitHub Actions → scanner workflow → "Run workflow".
-
----
+| [docs/architecture.md](docs/architecture.md) | 8-stage pipeline, scanner ↔ Supabase ↔ web seam, scheduling, observability |
+| [docs/data-model.md](docs/data-model.md) | Tables, Python/TS mirrors, DB constraints, field-mapping checklist |
+| [docs/scoring-model.md](docs/scoring-model.md) | Hard filter, 9 scoring factors, category gates, probability map |
+| [docs/entry-engine.md](docs/entry-engine.md) | Setup classification, anchors, validity gates, stop/exit/size logic |
+| [docs/state-machine.md](docs/state-machine.md) | Asset lifecycle states, transitions, alert trigger conditions |
+| [docs/local-dev.md](docs/local-dev.md) | Prerequisites, setup, test workflow, Supabase workflow, common issues |
+| [docs/roadmap.md](docs/roadmap.md) | What exists, what's planned, known gaps, out-of-scope |
+| [CLAUDE.md](CLAUDE.md) | Guidance for AI assistants working in this repo |
 
 ## Trading Framework
 
-**10-day fixed cycle:**
+Fixed 10-day cycle the scanner's parameters are tuned for:
 
-| Day | Action |
-|---|---|
-| Day 1 | Analyze scanner output, define entry/stop/target, place buy orders |
-| By Day 3 | Cancel all unfilled entries and reevaluate |
-| Days 3–7 | Expect exits via placed sell orders; only lower targets if structure holds |
-| Days 8–10 | Force-close all remaining open positions |
+- **Day 1** — evaluate scanner output and place entry orders.
+- **By Day 3** — cancel any unfilled entries and reevaluate.
+- **Days 3–7** — manage exits via placed sell orders.
+- **Days 8–10** — force-close any remaining open positions.
 
-**Output tables:**
-
-1. **Clean Candidates** — higher-liquidity swing setups, $5k–$20k+ sizing
-2. **Ugly Pre-Spike** — early thin/small-cap setups, $2k–$5k sizing
-
-**No bag holding beyond Day 10. No converting failed trades into investments.**
-
----
-
-## Implementation Status
-
-| PR | Scope | Status |
-|---|---|---|
-| PR 1 | Repo scaffold | ✅ Done |
-| PR 2 | Database schema + migrations | ✅ Done |
-| PR 3 | Shared types / contracts | ✅ Done |
-| PR 4 | Kraken universe loader | ✅ Done |
-| PR 5 | Market data ingestion pipeline | ✅ Done |
-| PR 6 | Indicator engine | ✅ Done |
-| PR 7 | Hard filter + metric calculator | ✅ Done |
-| PR 8 | Scoring engine | ✅ Done |
-| PR 9 | Candidate selector + trade params | ✅ Done |
-| PR 10 | State machine + run persister | ✅ Done |
-| PR 11 | Alert formatter + Discord dispatcher | ✅ Done |
-| PR 12 | Scheduled scan runner + GH Actions | ✅ Done |
-| PR 13 | Next.js dashboard scaffold + auth | ✅ Done |
-| PR 14 | Candidate tables UI | ✅ Done |
-| PR 15 | Scan history + alert history pages | ✅ Done |
-| PR 16 | Settings / config UI | ✅ Done |
-| PR 17 | Docker + on-prem portability | ✅ Done |
-| PR 18 | End-to-end smoke tests + observability | ✅ Done |
-| PR 19 | Global app shell — shared sidebar layout | ✅ Done |
-| PR 20 | Unique-symbol candidate model + correct counts | 🔜 Pending |
-| PR 21 | Scan run finalization + `timed_out` status | ✅ Done |
-| PR 22 | Discord compact table alert redesign | 🔜 Pending |
-| PR 23 | Size bucket redesign (8 tiers) | 🔜 Pending |
-| PR 24 | Denylist / policy exclusion layer | 🔜 Pending |
-| PR 25 | Diagnostics + introspection improvements | 🔜 Pending |
-
----
+Two candidate tables: **Clean** (larger, higher-liquidity setups) and **Ugly** (smaller, earlier pre-spike setups).
 
 ## License
 
-Private — personal use. Not for redistribution.
+Private repository. No open-source license granted.
