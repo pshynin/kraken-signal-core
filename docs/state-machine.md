@@ -67,8 +67,7 @@ Alert decisions live in `alerter.py`, not `state_machine.py`. The state machine 
 1. **Discord webhooks configured.** `DISCORD_WEBHOOK_CLEAN` and `DISCORD_WEBHOOK_UGLY` are set in the environment; otherwise `load_alert_config()` returns `None` and Stage 8 is skipped.
 2. **Candidate persisted.** Stage 7 succeeded — there is a row in `candidate_recommendations` and a row in `asset_state_history` with `to_state` in `{candidate_clean, candidate_ugly}` for the current run.
 3. **Not within dedup window.** No row exists in `alerts_sent` with `asset_id = X` and `delivery_status = 'sent'` and `created_at >= now() - dedup_window_hours`.
-   - `dedup_window_hours` defaults to **8h** (the `AlertConfig` constructor default).
-   - The intended source is `strategy_settings.scanner.alert_dedup_hours`, but it is **not currently wired through** — see [roadmap.md](roadmap.md).
+   - `dedup_window_hours` is sourced from `strategy_settings.scanner.alert_dedup_hours` (default **8h**).
 4. **Per-run safety cap not exceeded.** `AlertConfig.max_clean_alerts` / `max_ugly_alerts` default to 5 each.
 5. **POST returns 2xx.** Network errors or non-2xx responses are logged to `alerts_sent` with `delivery_status != 'sent'` and **do not** produce a state-history row.
 

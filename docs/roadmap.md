@@ -60,7 +60,6 @@ When a PR ships, move it from this table to the "What Exists Today" section abov
 
 Real issues in the current code that aren't ambiguities or "future work". Address them when adjacent code is touched, or open a focused PR.
 
-- **`scanner_alert_dedup_hours` not wired through.** `settings.py` parses `scanner.alert_dedup_hours` into `StrategySettings`, but no converter passes it into `AlertConfig`. `load_alert_config()` in `alerter.py` uses the hardcoded 8h default. The DB value is effectively ignored today.
 - **Type contracts mirrored by hand.** `apps/scanner/scanner/models.py`, `packages/shared-types/src/scanner.ts`, and `packages/shared-types/src/database.ts` must be kept in sync manually. No codegen; PRs that change one but not the others have shipped before. See [data-model.md](data-model.md).
 - **No DB-level CHECK on `asset_state_history.to_state`.** Any string is accepted. The set of allowed values is enforced only by convention and by [state-machine.md](state-machine.md). Acceptable today; revisit if multi-author churn introduces inconsistent values.
 - **RLS disabled.** `assets` (and likely other tables) ship with RLS off for the single-user MVP. Enable + add policies before multi-user.

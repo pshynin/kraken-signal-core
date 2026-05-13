@@ -259,7 +259,7 @@ def main(dry_run: bool = False) -> int:
     if _do_db and db_client and scan_run_id and _persist_ok and asset_id_map:
         from scanner.alerter import load_alert_config, run_alerter
 
-        alert_config = load_alert_config()
+        alert_config = load_alert_config(strategy)
         if alert_config:
             log.info("Stage 8 — sending Discord alerts")
             try:

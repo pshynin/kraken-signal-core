@@ -43,6 +43,7 @@ import httpx
 from supabase import Client
 
 from scanner.models import ScoredCandidate, SelectionResult, TradeParameters
+from scanner.settings import StrategySettings
 from scanner.state_machine import record_alerted_transition
 
 log = logging.getLogger(__name__)
@@ -74,16 +75,27 @@ class AlertConfig:
     """Safety cap: at most this many ugly alerts per scanner run."""
 
 
-def load_alert_config() -> AlertConfig | None:
+def load_alert_config(strategy: StrategySettings | None = None) -> AlertConfig | None:
     """Read Discord webhook URLs from environment variables.
 
     Returns None when required webhooks are absent, which gracefully
     disables alerting (Stage 8 is logged as skipped, not an error).
+
+    When `strategy` is provided, its `scanner_alert_dedup_hours` value
+    overrides the AlertConfig dedup window default. Webhook URLs always
+    come from environment variables — never from the DB.
     """
     clean = os.getenv("DISCORD_WEBHOOK_CLEAN")
     ugly = os.getenv("DISCORD_WEBHOOK_UGLY")
     if not clean or not ugly:
         return None
+    if strategy is not None:
+        return AlertConfig(
+            webhook_clean=clean,
+            webhook_ugly=ugly,
+            webhook_system=os.getenv("DISCORD_WEBHOOK_SYSTEM"),
+            dedup_window_hours=strategy.scanner_alert_dedup_hours,
+        )
     return AlertConfig(
         webhook_clean=clean,
         webhook_ugly=ugly,
