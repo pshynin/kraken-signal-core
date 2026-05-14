@@ -8,6 +8,7 @@ All tests are fully offline:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,10 +18,11 @@ from scanner.alerter import (
     _COLOR_UGLY,
     _DISCORD_MAX_CHARS,
     AlertConfig,
+    _format_candidate_block,
     _is_already_alerted,
     _post_to_webhook,
-    format_candidate_embed,
-    format_table_messages,
+    build_embed_payload,
+    format_stacked_messages,
     load_alert_config,
     run_alerter,
 )
@@ -171,55 +173,6 @@ def _client(dedup_data: list[dict] | None = None) -> MagicMock:
     return client
 
 
-# ── format_candidate_embed ────────────────────────────────────────────────────
-
-
-def test_format_embed_clean_emoji_in_title() -> None:
-    embed = format_candidate_embed(_candidate("BTC", "clean"))
-    assert "🟢" in embed["title"]
-    assert "BTC" in embed["title"]
-
-
-def test_format_embed_ugly_emoji_in_title() -> None:
-    embed = format_candidate_embed(_candidate("ETH", "ugly"))
-    assert "🟡" in embed["title"]
-    assert "ETH" in embed["title"]
-
-
-def test_format_embed_rank_in_title() -> None:
-    embed = format_candidate_embed(_candidate("SOL", "clean", rank=3))
-    assert "#3" in embed["title"]
-
-
-def test_format_embed_clean_color() -> None:
-    embed = format_candidate_embed(_candidate("BTC", "clean"))
-    assert embed["color"] == _COLOR_CLEAN
-
-
-def test_format_embed_ugly_color() -> None:
-    embed = format_candidate_embed(_candidate("ETH", "ugly"))
-    assert embed["color"] == _COLOR_UGLY
-
-
-def test_format_embed_required_fields_present() -> None:
-    embed = format_candidate_embed(_candidate())
-    field_names = {f["name"] for f in embed["fields"]}
-    for expected in ("Entry Zone", "Exit Target", "Stop Loss", "R:R Ratio", "Size Bucket", "Score"):
-        assert expected in field_names, f"missing field: {expected}"
-
-
-def test_format_embed_entry_zone_uses_low_high() -> None:
-    embed = format_candidate_embed(_candidate())
-    entry_field = next(f for f in embed["fields"] if f["name"] == "Entry Zone")
-    assert "49,750" in entry_field["value"]
-    assert "50,250" in entry_field["value"]
-
-
-def test_format_embed_notes_in_description() -> None:
-    embed = format_candidate_embed(_candidate())
-    assert "trend:up" in embed["description"]
-
-
 # ── _is_already_alerted ───────────────────────────────────────────────────────
 
 
@@ -331,52 +284,265 @@ def test_run_alerter_returns_total_sent_count() -> None:
     assert count == 2
 
 
-# ── format_table_messages ───────────────────────────────────────────────────────
+# ── format_stacked_messages ─────────────────────────────────────────────────────
 
 
-def test_format_table_messages_contains_all_symbols() -> None:
+def _when() -> datetime:
+    return datetime(2026, 5, 14, 3, 15, tzinfo=UTC)
+
+
+def test_format_stacked_messages_header_clean_emoji_and_label() -> None:
+    msgs = format_stacked_messages([_candidate("BTC", "clean", 1)], "clean", _when())
+    first_line = msgs[0].splitlines()[0]
+    assert first_line.startswith("🟢 Clean Candidates — 1")
+
+
+def test_format_stacked_messages_header_ugly_emoji_and_label() -> None:
+    msgs = format_stacked_messages([_candidate("ETH", "ugly", 1)], "ugly", _when())
+    first_line = msgs[0].splitlines()[0]
+    assert first_line.startswith("🟡 Ugly Candidates — 1")
+
+
+def test_format_stacked_messages_header_includes_timestamp() -> None:
+    msgs = format_stacked_messages([_candidate("BTC", "clean", 1)], "clean", _when())
+    first_line = msgs[0].splitlines()[0]
+    assert "(5/14/26, 3:15 AM)" in first_line
+
+
+def test_format_stacked_messages_contains_all_symbols() -> None:
     candidates = [_candidate("BTC", "clean", 1), _candidate("ETH", "clean", 2)]
-    now = "2026-05-11T10:00:00Z"
-    msgs = format_table_messages(candidates, "clean", now)
-    assert len(msgs) >= 1
+    msgs = format_stacked_messages(candidates, "clean", _when())
     combined = "".join(msgs)
-    assert "BTC" in combined
-    assert "ETH" in combined
+    assert "#1 BTC" in combined
+    assert "#2 ETH" in combined
 
 
-def test_format_table_messages_under_discord_limit() -> None:
+def test_format_stacked_messages_under_discord_limit() -> None:
     candidates = [_candidate(f"C{i}", "clean", i + 1) for i in range(10)]
-    now = "2026-05-11T10:00:00Z"
-    msgs = format_table_messages(candidates, "clean", now)
+    msgs = format_stacked_messages(candidates, "clean", _when())
     for msg in msgs:
         assert len(msg) <= _DISCORD_MAX_CHARS
 
 
-def test_format_table_messages_ugly_label() -> None:
-    candidates = [_candidate("ETH", "ugly", 1)]
-    msgs = format_table_messages(candidates, "ugly", "2026-05-11T10:00:00Z")
-    assert "🟡" in msgs[0]
-    assert "Ugly" in msgs[0]
+def test_format_stacked_messages_empty_returns_empty_list() -> None:
+    assert format_stacked_messages([], "clean", _when()) == []
 
 
-def test_format_table_messages_clean_label() -> None:
-    candidates = [_candidate("BTC", "clean", 1)]
-    msgs = format_table_messages(candidates, "clean", "2026-05-11T10:00:00Z")
-    assert "🟢" in msgs[0]
-    assert "Clean" in msgs[0]
-
-
-def test_format_table_messages_splits_at_limit() -> None:
+def test_format_stacked_messages_splits_between_candidates() -> None:
+    """When the body would exceed the per-message cap, splits happen at
+    candidate boundaries — never mid-block."""
     import scanner.alerter as alerter_mod
 
     original = alerter_mod._DISCORD_MAX_CHARS
     try:
         alerter_mod._DISCORD_MAX_CHARS = 300
         candidates = [_candidate(f"T{i}", "clean", i + 1) for i in range(5)]
-        msgs = format_table_messages(candidates, "clean", "2026-05-11T10:00:00Z")
+        msgs = format_stacked_messages(candidates, "clean", _when())
         assert len(msgs) > 1
+        # Each message must end with a Stop line (the last line of a block).
+        for msg in msgs:
+            assert msg.rstrip().splitlines()[-1].startswith("• Stop:")
     finally:
         alerter_mod._DISCORD_MAX_CHARS = original
+
+
+# ── _format_candidate_block ───────────────────────────────────────────────────
+
+
+def test_candidate_block_uses_preferred_entry_and_max_entry() -> None:
+    block = _format_candidate_block(1, _candidate("BTC", "clean", 1))
+    # The fixture has preferred_entry=50_000.0, max_entry=50_500.0.
+    assert "Entry:" in block
+    assert "50,000" in block
+    assert "(Max 50,500" in block
+
+
+def test_candidate_block_field_order_is_entry_exit_stop() -> None:
+    """Four-line block: title + Entry + Exit + Stop. Size is in the title,
+    not a separate line."""
+    block = _format_candidate_block(1, _candidate("BTC", "clean", 1))
+    lines = block.splitlines()
+    assert len(lines) == 4
+    assert lines[1].startswith("• Entry:")
+    assert lines[2].startswith("• Exit:")
+    assert lines[3].startswith("• Stop:")
+
+
+def test_candidate_block_no_separate_size_line() -> None:
+    """Size moved to the title; no line should start with '• Size'."""
+    block = _format_candidate_block(1, _candidate("BTC", "clean", 1))
+    for line in block.splitlines():
+        assert not line.startswith("• Size")
+
+
+def test_candidate_block_title_contains_prob_and_size() -> None:
+    """Title line: '#R SYM • Prob P% • Size BUCKET'. No 'Gain' on the title."""
+    block = _format_candidate_block(2, _candidate("ETH", "ugly", 2))
+    title = block.splitlines()[0]
+    assert title.startswith("#2 ETH")
+    assert "• Prob " in title
+    assert "• Size " in title
+    # Bucket value comes through.
+    assert "5k-10k" in title  # default fixture bucket
+
+
+def test_candidate_block_no_gain_field_anywhere() -> None:
+    """The legacy 'Gain' field is gone; profit is shown inline on Exit."""
+    block = _format_candidate_block(1, _candidate("BTC", "clean", 1))
+    assert "Gain" not in block
+
+
+def test_candidate_block_profit_derived_from_entry_exit() -> None:
+    """Profit % must be derived from preferred_entry / exit_price geometry,
+    not read from tp.expected_gain_pct (which could drift)."""
+    c = _candidate("BTC", "clean", 1)
+    c.trade.preferred_entry = 100.0
+    c.trade.exit_price = 120.0
+    c.trade.stop_loss = 85.0
+    c.trade.expected_gain_pct = 99.9  # deliberately wrong; must be ignored
+    block = _format_candidate_block(1, c)
+    # 20% profit, 15% risk — derived from prices, not from 99.9.
+    assert "(Profit +20%)" in block
+    assert "(Risk -15%)" in block
+    assert "99" not in block  # nothing referenced 99.9
+
+
+def test_candidate_block_risk_is_negative() -> None:
+    """Risk is rendered with its natural negative sign."""
+    c = _candidate("BTC", "clean", 1)
+    c.trade.preferred_entry = 100.0
+    c.trade.exit_price = 110.0
+    c.trade.stop_loss = 92.0
+    block = _format_candidate_block(1, c)
+    assert "(Risk -8%)" in block
+
+
+def test_candidate_block_value_columns_aligned() -> None:
+    """Entry/Exit/Stop value columns all start at the same offset (col 10)
+    so the prices line up vertically."""
+    block = _format_candidate_block(1, _candidate("BTC", "clean", 1))
+    lines = block.splitlines()
+    # Skip the title line. Each field line: '• ' + 8-char-padded label.
+    for line in lines[1:]:
+        prefix = line[:10]
+        # First 10 chars are the bullet+label+padding.
+        assert prefix in ("• Entry:  ", "• Exit:   ", "• Stop:   "), (
+            f"unexpected prefix: {prefix!r}"
+        )
+
+
+def test_candidate_block_omits_setup_abbreviation() -> None:
+    """Setup abbreviations like PULL/RCL/BRK must not appear in the
+    candidate title line — they were rejected as cryptic in the alert."""
+    block = _format_candidate_block(1, _candidate("BTC", "clean", 1))
+    title = block.splitlines()[0]
+    for token in ("PULL", "RCL", "BRK"):
+        assert token not in title
+
+
+def test_candidate_block_no_notes_or_signature() -> None:
+    block = _format_candidate_block(1, _candidate("BTC", "clean", 1))
+    # The fixture's notes field is "trend:up | rsi:60". Notes must not
+    # appear in the alert body, nor must any "Kraken Signal" signature.
+    assert "trend:up" not in block
+    assert "Kraken Signal" not in block
+
+
+def test_candidate_block_raises_loudly_when_probability_is_none() -> None:
+    """Invariant: alerted clean/ugly candidates must have a non-null
+    probability_pct. The block builder fails loudly rather than rendering
+    a degraded alert."""
+    bad = _candidate("BTC", "clean", 1)
+    bad.score.probability_pct = None
+    with pytest.raises(ValueError) as exc:
+        _format_candidate_block(1, bad)
+    assert "probability_pct is None" in str(exc.value)
+
+
+# ── Golden sample-output ────────────────────────────────────────────────────
+
+
+def _make_inj() -> ScoredCandidate:
+    """Fixture matching the locked target output: INJ with the exact
+    prices/probability shown in the PR 22 plan. Profit is derived from
+    entry/exit and rounds to +30%; risk derives to -11%."""
+    c = _candidate("INJ", "ugly", 1)
+    c.score.probability_pct = 77.0
+    c.trade.preferred_entry = 4.8883
+    c.trade.max_entry = 4.9620
+    c.trade.exit_price = 6.3487
+    c.trade.stop_loss = 4.3385
+    c.trade.expected_gain_pct = 30.0
+    c.trade.suggested_size_bucket = "2k-5k"
+    return c
+
+
+def _make_useless() -> ScoredCandidate:
+    """USELESS fixture. Profit derives to +41%, risk to -15%."""
+    c = _candidate("USELESS", "ugly", 2)
+    c.score.probability_pct = 69.0
+    c.trade.preferred_entry = 0.05907
+    c.trade.max_entry = 0.05996
+    c.trade.exit_price = 0.08342
+    c.trade.stop_loss = 0.05046
+    c.trade.expected_gain_pct = 41.0
+    c.trade.suggested_size_bucket = "2k-5k"
+    return c
+
+
+_GOLDEN_BODY = (
+    "🟡 Ugly Candidates — 2 (5/14/26, 3:15 AM)\n"
+    "\n"
+    "#1 INJ • Prob 77% • Size 2k-5k\n"
+    "• Entry:  4.8883 (Max 4.9620)\n"
+    "• Exit:   6.3487 (Profit +30%)\n"
+    "• Stop:   4.3385 (Risk -11%)\n"
+    "\n"
+    "#2 USELESS • Prob 69% • Size 2k-5k\n"
+    "• Entry:  0.05907 (Max 0.05996)\n"
+    "• Exit:   0.08342 (Profit +41%)\n"
+    "• Stop:   0.05046 (Risk -15%)"
+)
+
+
+def test_format_stacked_messages_matches_golden_output() -> None:
+    msgs = format_stacked_messages([_make_inj(), _make_useless()], "ugly", _when())
+    assert len(msgs) == 1
+    assert msgs[0] == _GOLDEN_BODY
+
+
+# ── build_embed_payload ─────────────────────────────────────────────────────
+
+
+def test_build_embed_payload_clean_color() -> None:
+    payload = build_embed_payload("body", "clean")
+    assert payload["embeds"][0]["color"] == _COLOR_CLEAN
+    assert payload["embeds"][0]["description"] == "body"
+
+
+def test_build_embed_payload_ugly_color() -> None:
+    payload = build_embed_payload("body", "ugly")
+    assert payload["embeds"][0]["color"] == _COLOR_UGLY
+
+
+def test_build_embed_payload_has_no_title_or_footer() -> None:
+    """The header line is part of the body. No bot/product signature."""
+    payload = build_embed_payload("body", "clean")
+    embed = payload["embeds"][0]
+    assert "title" not in embed
+    assert "footer" not in embed
+
+
+def test_run_alerter_posts_embed_payload_not_content() -> None:
+    """The dispatcher must send {'embeds': [...]} rather than {'content': ...}."""
+    client = _client()
+    sel = SelectionResult(clean=[_candidate("BTC", "clean")])
+    with patch("scanner.alerter._post_to_webhook") as mock_post:
+        run_alerter(client, "run-id", {"BTC": "uuid-btc"}, sel, _CFG)
+    payload = mock_post.call_args[0][1]
+    assert "embeds" in payload
+    assert "content" not in payload
+    assert payload["embeds"][0]["color"] == _COLOR_CLEAN
 
 
 # ── load_alert_config ────────────────────────────────────────────────────────────
