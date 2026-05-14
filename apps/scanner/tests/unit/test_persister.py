@@ -441,21 +441,77 @@ def test_upsert_candidate_recommendations_state_field() -> None:
 def test_upsert_candidate_recommendations_skips_missing_score_id() -> None:
     client = _client()
     sel = _selection_result(clean=["BTC"])
-    count = upsert_candidate_recommendations(
+    counts = upsert_candidate_recommendations(
         client,
         "run-id",
         {"BTC": "asset-btc"},
         {},
         sel,  # no score_id for BTC
     )
-    assert count == 0
+    assert counts == (0, 0)
     client.table.return_value.upsert.assert_not_called()
 
 
 def test_upsert_candidate_recommendations_empty_selection() -> None:
     client = _client()
-    count = upsert_candidate_recommendations(client, "run-id", {}, {}, SelectionResult())
-    assert count == 0
+    counts = upsert_candidate_recommendations(client, "run-id", {}, {}, SelectionResult())
+    assert counts == (0, 0)
+
+
+def test_upsert_candidate_recommendations_returns_per_category_counts() -> None:
+    """Per-category counts come from the rows actually built and upserted,
+    not from len(selection_result.clean/.ugly)."""
+    client = _client(upsert_data=[{}, {}, {}])
+    sel = _selection_result(clean=["BTC", "SOL"], ugly=["ETH"])
+    asset_id_map = {"BTC": "asset-btc", "SOL": "asset-sol", "ETH": "asset-eth"}
+    score_id_map = {"BTC": "score-btc", "SOL": "score-sol", "ETH": "score-eth"}
+    counts = upsert_candidate_recommendations(client, "run-id", asset_id_map, score_id_map, sel)
+    assert counts == (2, 1)
+
+
+def test_upsert_candidate_recommendations_skipped_rows_reduce_counts() -> None:
+    """When a candidate is skipped (missing asset_id or score_id), the
+    returned counts must reflect what was actually upserted, not what the
+    selector produced."""
+    client = _client(upsert_data=[{}])
+    sel = _selection_result(clean=["BTC", "SOL"], ugly=["ETH"])
+    # SOL has no asset_id, ETH has no score_id — only BTC survives.
+    asset_id_map = {"BTC": "asset-btc", "ETH": "asset-eth"}
+    score_id_map = {"BTC": "score-btc", "SOL": "score-sol"}
+    counts = upsert_candidate_recommendations(client, "run-id", asset_id_map, score_id_map, sel)
+    assert counts == (1, 0)
+
+
+def test_persist_run_returns_persist_result_with_matching_counts() -> None:
+    """persist_run returns PersistResult; its counts equal what
+    upsert_candidate_recommendations actually persisted."""
+    from scanner.persister import PersistResult, persist_run
+
+    fr = _filter_result(passed_syms=["BTC", "ETH"], excluded_syms=[])
+    sr = _scoring_result(clean=["BTC"], ugly=["ETH"])
+    sel = _selection_result(clean=["BTC"], ugly=["ETH"])
+
+    upsert_data = [
+        {"id": "score-btc", "asset_id": "asset-btc"},
+        {"id": "score-eth", "asset_id": "asset-eth"},
+    ]
+    select_data = [
+        {"symbol": "BTC", "id": "asset-btc"},
+        {"symbol": "ETH", "id": "asset-eth"},
+    ]
+    client = _client(upsert_data=upsert_data, select_data=select_data)
+
+    result = persist_run(
+        client,
+        "run-id",
+        filter_result=fr,
+        scoring_result=sr,
+        selection_result=sel,
+    )
+    assert isinstance(result, PersistResult)
+    assert result.candidates_clean == 1
+    assert result.candidates_ugly == 1
+    assert result.asset_id_map == {"BTC": "asset-btc", "ETH": "asset-eth"}
 
 
 # ── persist_run ───────────────────────────────────────────────────────────────

@@ -178,10 +178,32 @@ function EmptyState() {
   );
 }
 
+// ── No-candidates banner ──────────────────────────────────────────────────────
+// Shown when the most recent run finalised but produced zero clean and zero
+// ugly candidates. Makes the "—"-vs-"0" distinction explicit so the operator
+// knows the scan completed successfully with an empty universe of setups.
+
+function NoCandidatesBanner() {
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+      <span className="font-medium text-foreground">No candidates produced this run.</span>{" "}
+      The pipeline completed; no asset met clean or ugly qualification.
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
   const { lastRun, activeAssets } = await getOverviewData();
+
+  // "Run finalised with zero candidates" — only true when the run finished
+  // (not still running) and both counts are explicitly 0 (not null/unknown).
+  const showNoCandidatesBanner =
+    !!lastRun &&
+    lastRun.status !== "running" &&
+    lastRun.candidates_clean === 0 &&
+    lastRun.candidates_ugly === 0;
 
   return (
     <div className="max-w-5xl mx-auto px-8 py-8 space-y-8">
@@ -222,6 +244,9 @@ export default async function DashboardPage() {
               Icon={Database}
             />
           </div>
+
+          {/* Zero-candidates banner (only shown for completed runs) */}
+          {showNoCandidatesBanner && <NoCandidatesBanner />}
 
           {/* Last run detail */}
           {lastRun ? <LastRunCard run={lastRun} /> : <EmptyState />}

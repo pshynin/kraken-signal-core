@@ -36,6 +36,7 @@ Internal (exposed for unit tests):
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -48,6 +49,23 @@ from scanner.models import (
     ScoringResult,
     SelectionResult,
 )
+
+
+@dataclass(frozen=True)
+class PersistResult:
+    """Return value of persist_run.
+
+    Carries the symbol -> asset_id map alongside the canonical
+    candidate counts derived from what was actually written to
+    candidate_recommendations. main.py uses these counts when writing
+    scan_runs and scan_summary.json so that the reported counts and the
+    persisted rows cannot drift.
+    """
+
+    asset_id_map: dict[str, str] = field(default_factory=dict)
+    candidates_clean: int = 0
+    candidates_ugly: int = 0
+
 
 log = logging.getLogger(__name__)
 
@@ -499,7 +517,7 @@ def upsert_candidate_recommendations(
     asset_id_map: dict[str, str],
     score_id_map: dict[str, str],
     selection_result: SelectionResult,
-) -> int:
+) -> tuple[int, int]:
     """Write candidate_recommendations rows for clean + ugly candidates only.
 
     Requires score_id_map populated by upsert_candidate_scores (score_id is
@@ -509,13 +527,18 @@ def upsert_candidate_recommendations(
         score_id_map: {symbol: score_uuid} returned by upsert_candidate_scores.
 
     Returns:
-        Number of rows written.
+        (clean_count, ugly_count) — per-category counts of rows actually built
+        and upserted (skipped rows are not counted). main.py threads these
+        through scan_runs so the reported counts can't drift from what was
+        persisted.
     """
     if selection_result.total_count == 0:
-        return 0
+        return (0, 0)
 
     rows: list[dict[str, Any]] = []
     skipped = 0
+    clean_built = 0
+    ugly_built = 0
 
     for candidate in selection_result.all_candidates:
         asset_id = asset_id_map.get(candidate.symbol)
@@ -563,17 +586,23 @@ def upsert_candidate_recommendations(
                 "state": f"candidate_{candidate.category}",  # 'candidate_clean' | 'candidate_ugly'
             }
         )
+        if candidate.category == "clean":
+            clean_built += 1
+        elif candidate.category == "ugly":
+            ugly_built += 1
 
     if not rows:
-        return 0
+        return (0, 0)
 
     count = _batch_upsert(client, "candidate_recommendations", rows, "scan_run_id,asset_id")
     log.info(
-        "upsert_candidate_recommendations: %d rows, %d skipped",
+        "upsert_candidate_recommendations: %d rows (%d clean + %d ugly), %d skipped",
         count,
+        clean_built,
+        ugly_built,
         skipped,
     )
-    return count
+    return (clean_built, ugly_built)
 
 
 # ── Pipeline entry point ──────────────────────────────────────────────────────
@@ -586,7 +615,7 @@ def persist_run(
     filter_result: FilterResult,
     scoring_result: ScoringResult,
     selection_result: SelectionResult,
-) -> dict[str, str]:
+) -> PersistResult:
     """Execute all DB write operations for a completed scan run.
 
     Write order preserves FK dependencies:
@@ -601,6 +630,13 @@ def persist_run(
         filter_result:    Output of run_hard_filter() (PR 7).
         scoring_result:   Output of run_scoring_engine() (PR 8).
         selection_result: Output of run_candidate_selector() (PR 9).
+
+    Returns:
+        PersistResult with asset_id_map and the canonical per-category
+        candidate counts derived from what was actually upserted into
+        candidate_recommendations. main.py uses these counts (not
+        len(selection_result.clean/.ugly)) when writing scan_runs so that
+        the reported counts and persisted rows cannot drift.
     """
     all_symbols = list(
         {
@@ -611,7 +647,7 @@ def persist_run(
 
     if not all_symbols:
         log.warning("persist_run: no symbols to persist — skipping DB writes")
-        return {}
+        return PersistResult()
 
     log.info("persist_run: resolving asset_ids for %d symbols", len(all_symbols))
     asset_id_map = fetch_asset_id_map(client, all_symbols)
@@ -621,14 +657,14 @@ def persist_run(
             "persist_run: asset_id_map is empty — ensure upsert_assets() "
             "ran before persist_run() (Stage 1 DB write must not be skipped)"
         )
-        return {}
+        return PersistResult()
 
     upsert_market_snapshots(client, scan_run_id, asset_id_map, filter_result.passed_metrics)
     upsert_indicator_snapshots(client, scan_run_id, asset_id_map, filter_result.passed_indicators)
     score_id_map = upsert_candidate_scores(
         client, scan_run_id, asset_id_map, scoring_result, filter_result
     )
-    upsert_candidate_recommendations(
+    clean_count, ugly_count = upsert_candidate_recommendations(
         client, scan_run_id, asset_id_map, score_id_map, selection_result
     )
 
@@ -639,5 +675,14 @@ def persist_run(
         client, scan_run_id, asset_id_map, filter_result, scoring_result, selection_result
     )
 
-    log.info("persist_run complete for scan_run_id=%s", scan_run_id)
-    return asset_id_map
+    log.info(
+        "persist_run complete for scan_run_id=%s (%d clean + %d ugly persisted)",
+        scan_run_id,
+        clean_count,
+        ugly_count,
+    )
+    return PersistResult(
+        asset_id_map=asset_id_map,
+        candidates_clean=clean_count,
+        candidates_ugly=ugly_count,
+    )

@@ -385,6 +385,27 @@ def test_run_selector_all_candidates_aggregates() -> None:
     assert syms == {"A", "B"}
 
 
+def test_run_selector_clean_ugly_no_symbol_overlap() -> None:
+    """Regression guard: a single symbol must never appear in both clean and
+    ugly. The scoring engine assigns exactly one category per asset, but no
+    test pinned that today's selector preserves the property end-to-end."""
+    syms = ["A", "B", "C", "D", "E"]
+    pairs = [(_metrics(s), _indicator(s)) for s in syms]
+    fr = _filter_result(pairs)
+    # Mix categories: 3 clean + 2 ugly, all distinct symbols.
+    sr = _scoring_result_with(
+        clean=[("A", 80.0), ("B", 75.0), ("C", 71.0)],
+        ugly=[("D", 67.0), ("E", 64.0)],
+    )
+    result = run_candidate_selector(sr, fr)
+    clean_syms = {c.symbol for c in result.clean}
+    ugly_syms = {c.symbol for c in result.ugly}
+    assert clean_syms & ugly_syms == set(), (
+        f"symbol(s) appeared in both clean and ugly: {clean_syms & ugly_syms}"
+    )
+    assert len(clean_syms) + len(ugly_syms) == result.total_count
+
+
 # ── Validity gates (EntryEngineError → EntryRejection) ────────────────────────
 
 
