@@ -6,19 +6,23 @@ Writes the immutable asset_state_history audit trail. Called in two places:
     2. run_alerter() via record_alerted_transition() — one row per successful
        Discord delivery, transitioning candidate_* → alerted.
 
-State values used by the scanner (subset of candidate_recommendations.state):
+State values used by the scanner:
     candidate_clean   — selected clean candidate (recommendation written)
     candidate_ugly    — selected ugly candidate  (recommendation written)
-    watchlist         — scored but below selection threshold
+    watchlist         — scored at or above watchlist_min_score but not selected
+    low_score         — scored below watchlist_min_score (distinct from excluded)
+    entry_rejected    — selected but dropped by the entry engine (no valid plan)
     excluded          — failed hard filter
     alerted           — Discord alert sent successfully
 
 reason values stored in asset_state_history.reason:
-    new_candidate       — first time in this category (from_state differs)
-    retained_candidate  — same category as previous run
-    watchlist_entry     — scored but not selected
-    <exclusion_reason>  — copied from HardFilterResult.exclusion_reason
-    alerted             — written by record_alerted_transition
+    new_candidate            — first time in this category (from_state differs)
+    retained_candidate       — same category as previous run
+    watchlist_entry          — score >= watchlist_min_score, not selected
+    low_score_entry          — score < watchlist_min_score
+    <entry_rejection_reason> — one of scanner.rejection_reasons.*
+    <exclusion_reason>       — copied from HardFilterResult.exclusion_reason
+    alerted                  — written by record_alerted_transition
 
 Public API:
     record_initial_transitions(
@@ -134,7 +138,7 @@ def _build_transition_rows(
             }
         )
 
-    # ── Watchlist (scored but below selection threshold) ───────────────────────
+    # ── Watchlist (scored at or above watchlist_min_score, not selected) ──────
     for score_bd in scoring_result.watchlist:
         asset_id = asset_id_map.get(score_bd.symbol)
         if not asset_id:
@@ -149,6 +153,46 @@ def _build_transition_rows(
                 "metadata": {
                     "score_total": score_bd.score_total,
                     "probability_pct": score_bd.probability_pct,
+                },
+            }
+        )
+
+    # ── Low-score (scored below watchlist_min_score) ──────────────────────────
+    for score_bd in scoring_result.low_score:
+        asset_id = asset_id_map.get(score_bd.symbol)
+        if not asset_id:
+            continue
+        rows.append(
+            {
+                "asset_id": asset_id,
+                "scan_run_id": scan_run_id,
+                "from_state": prev_states.get(asset_id),
+                "to_state": "low_score",
+                "reason": "low_score_entry",
+                "metadata": {
+                    "score_total": score_bd.score_total,
+                    "probability_pct": score_bd.probability_pct,
+                },
+            }
+        )
+
+    # ── Entry-rejected (selected, but no valid trade plan) ────────────────────
+    for rejection in selection_result.rejected:
+        asset_id = asset_id_map.get(rejection.symbol)
+        if not asset_id:
+            continue
+        rows.append(
+            {
+                "asset_id": asset_id,
+                "scan_run_id": scan_run_id,
+                "from_state": prev_states.get(asset_id),
+                "to_state": "entry_rejected",
+                "reason": rejection.rejection_reason,
+                "metadata": {
+                    **rejection.metadata,
+                    "category": rejection.category,
+                    "rank": rejection.rank,
+                    "setup_type": rejection.setup_type,
                 },
             }
         )
@@ -198,11 +242,14 @@ def record_initial_transitions(
         total += len(resp.data) if resp.data else len(chunk)
 
     log.info(
-        "record_initial_transitions: %d rows inserted (%d candidates, %d excluded, %d watchlist)",
+        "record_initial_transitions: %d rows inserted "
+        "(%d candidates, %d excluded, %d watchlist, %d low_score, %d entry_rejected)",
         total,
         len(selection_result.all_candidates),
         len(filter_result.exclusions),
         len(scoring_result.watchlist),
+        len(scoring_result.low_score),
+        len(selection_result.rejected),
     )
     return total
 

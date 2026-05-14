@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 from scanner.models import (
     AssetIndicators,
+    EntryRejection,
     FilterResult,
     HardFilterResult,
     IndicatorSnapshot,
@@ -20,6 +21,10 @@ from scanner.models import (
     ScoringResult,
     SelectionResult,
     TradeParameters,
+)
+from scanner.rejection_reasons import (
+    ENTRY_REJECT_BREAKOUT_CHASE_CEILING,
+    ENTRY_REJECT_PULLBACK_MAX_ABOVE_PRICE,
 )
 from scanner.state_machine import (
     _build_transition_rows,
@@ -181,10 +186,18 @@ def _make_inputs(
     ugly_syms: list[str] | None = None,
     excluded_syms: list[str] | None = None,
     watchlist_syms: list[str] | None = None,
+    low_score_syms: list[str] | None = None,
+    rejected: list[EntryRejection] | None = None,
 ) -> tuple[dict[str, str], FilterResult, ScoringResult, SelectionResult]:
     asset_id_map = {}
+    rejected_syms = [r.symbol for r in (rejected or [])]
     all_syms = (
-        (clean_syms or []) + (ugly_syms or []) + (excluded_syms or []) + (watchlist_syms or [])
+        (clean_syms or [])
+        + (ugly_syms or [])
+        + (excluded_syms or [])
+        + (watchlist_syms or [])
+        + (low_score_syms or [])
+        + rejected_syms
     )
     for sym in all_syms:
         asset_id_map[sym] = f"uuid-{sym.lower()}"
@@ -204,10 +217,13 @@ def _make_inputs(
         scores.append(_score(s, "ugly"))
     for s in watchlist_syms or []:
         scores.append(_score(s, "watchlist"))
+    for s in low_score_syms or []:
+        scores.append(_score(s, "low_score"))
     sr = ScoringResult(scores=scores)
     sel = SelectionResult(
         clean=[_candidate(s, "clean", i + 1) for i, s in enumerate(clean_syms or [])],
         ugly=[_candidate(s, "ugly", i + 1) for i, s in enumerate(ugly_syms or [])],
+        rejected=rejected or [],
     )
     return asset_id_map, fr, sr, sel
 
@@ -260,6 +276,83 @@ def test_build_transition_rows_metadata_contains_price() -> None:
     assert meta is not None
     assert "price_usd" in meta
     assert "rank" in meta
+
+
+def test_build_transition_rows_low_score() -> None:
+    asset_id_map, fr, sr, sel = _make_inputs(low_score_syms=["DOGE"])
+    rows = _build_transition_rows("run-id", asset_id_map, {}, fr, sr, sel)
+    ls_row = next(r for r in rows if r["to_state"] == "low_score")
+    assert ls_row["asset_id"] == "uuid-doge"
+    assert ls_row["reason"] == "low_score_entry"
+    assert ls_row["metadata"] is not None
+    assert "score_total" in ls_row["metadata"]
+    assert "probability_pct" in ls_row["metadata"]
+
+
+def test_build_transition_rows_low_score_distinct_from_watchlist() -> None:
+    """low_score and watchlist coexist as separate rows with separate states."""
+    asset_id_map, fr, sr, sel = _make_inputs(
+        watchlist_syms=["AVAX"],
+        low_score_syms=["DOGE"],
+    )
+    rows = _build_transition_rows("run-id", asset_id_map, {}, fr, sr, sel)
+    states = {r["to_state"] for r in rows}
+    assert "watchlist" in states
+    assert "low_score" in states
+
+
+def test_build_transition_rows_entry_rejected_pullback() -> None:
+    rej = EntryRejection(
+        symbol="LINK",
+        category="clean",
+        rank=3,
+        setup_type="pullback",
+        rejection_reason=ENTRY_REJECT_PULLBACK_MAX_ABOVE_PRICE,
+        metadata={"score_total": 72.0, "probability_pct": 77.0, "current_price": 14.5},
+    )
+    asset_id_map, fr, sr, sel = _make_inputs(rejected=[rej])
+    rows = _build_transition_rows("run-id", asset_id_map, {}, fr, sr, sel)
+    er_row = next(r for r in rows if r["to_state"] == "entry_rejected")
+    assert er_row["asset_id"] == "uuid-link"
+    assert er_row["reason"] == ENTRY_REJECT_PULLBACK_MAX_ABOVE_PRICE
+    meta = er_row["metadata"]
+    assert meta["category"] == "clean"
+    assert meta["rank"] == 3
+    assert meta["setup_type"] == "pullback"
+    assert meta["score_total"] == 72.0
+    assert meta["current_price"] == 14.5
+
+
+def test_build_transition_rows_entry_rejected_breakout() -> None:
+    rej = EntryRejection(
+        symbol="SOL",
+        category="ugly",
+        rank=1,
+        setup_type="breakout_trigger",
+        rejection_reason=ENTRY_REJECT_BREAKOUT_CHASE_CEILING,
+        metadata={"score_total": 65.0, "probability_pct": 69.0, "current_price": 180.0},
+    )
+    asset_id_map, fr, sr, sel = _make_inputs(rejected=[rej])
+    rows = _build_transition_rows("run-id", asset_id_map, {}, fr, sr, sel)
+    er_row = next(r for r in rows if r["to_state"] == "entry_rejected")
+    assert er_row["reason"] == ENTRY_REJECT_BREAKOUT_CHASE_CEILING
+    assert er_row["metadata"]["setup_type"] == "breakout_trigger"
+
+
+def test_build_transition_rows_entry_rejected_not_in_candidate_counts() -> None:
+    """Defensive: entry_rejected does not produce a candidate_clean/candidate_ugly row."""
+    rej = EntryRejection(
+        symbol="LINK",
+        category="clean",
+        rank=1,
+        setup_type="pullback",
+        rejection_reason=ENTRY_REJECT_PULLBACK_MAX_ABOVE_PRICE,
+        metadata={},
+    )
+    asset_id_map, fr, sr, sel = _make_inputs(rejected=[rej])
+    rows = _build_transition_rows("run-id", asset_id_map, {}, fr, sr, sel)
+    candidate_states = [r for r in rows if r["to_state"].startswith("candidate_")]
+    assert candidate_states == []
 
 
 # ── record_initial_transitions ────────────────────────────────────────────────

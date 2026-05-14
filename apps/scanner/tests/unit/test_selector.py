@@ -383,3 +383,146 @@ def test_run_selector_all_candidates_aggregates() -> None:
     assert result.total_count == 2
     syms = {c.symbol for c in result.all_candidates}
     assert syms == {"A", "B"}
+
+
+# ── Validity gates (EntryEngineError → EntryRejection) ────────────────────────
+
+
+def test_run_selector_captures_breakout_chase_rejection() -> None:
+    """Breakout candidate above current_price × (1 + max_chase) is rejected,
+    not in clean/ugly, and recorded as an EntryRejection with the chase-ceiling
+    reason constant."""
+    from scanner.rejection_reasons import ENTRY_REJECT_BREAKOUT_CHASE_CEILING
+
+    # Breakout setup: dist_from_20d_high near 0, ret_7d > 8%, trend up.
+    # Force preferred_entry well above current_price by placing price at/above 20d high.
+    m = _metrics(
+        "BO",
+        price_usd=100.0,
+        dist_from_20d_high=-0.02,  # approaching 20d high — triggers breakout-above-high path
+        return_7d=0.15,
+    )
+    ind = _indicator("BO", trend_state="strong_up")
+    fr = _filter_result(pairs=[(m, ind)])
+    sr = _scoring_result_with(clean=[("BO", 80.0)])
+    # Tighten the chase ceiling to make the rejection deterministic.
+    cfg = SelectorConfig(max_chase_current_price_pct=0.0)
+    result = run_candidate_selector(sr, fr, cfg)
+
+    assert result.clean == []
+    assert len(result.rejected) == 1
+    rej = result.rejected[0]
+    assert rej.symbol == "BO"
+    assert rej.category == "clean"
+    assert rej.setup_type == "breakout_trigger"
+    assert rej.rejection_reason == ENTRY_REJECT_BREAKOUT_CHASE_CEILING
+    assert rej.metadata["score_total"] == 80.0
+    assert rej.metadata["current_price"] == pytest.approx(100.0)
+
+
+def test_run_selector_captures_reclaim_no_anchor_rejection() -> None:
+    """Reclaim setup with no qualified anchor in proximity window is rejected
+    with the no-anchor reason constant."""
+    from scanner.rejection_reasons import ENTRY_REJECT_NO_QUALIFIED_ANCHOR
+
+    # Reclaim triggers when price_vs_ema20_pct in [-3, 4] and ret_3d>0 and
+    # ret_7d in [-12%, 8%]. Provide no usable EMA-20 or VWAP values so the
+    # anchor search returns nothing.
+    m = _metrics("RC", price_usd=50.0, return_7d=0.02, return_3d=0.01)
+    ind = _indicator(
+        "RC",
+        price_vs_ema20_pct=1.0,  # within reclaim band
+        trend_state="up",
+        ema_20=None,
+        vwap=None,
+    )
+    fr = _filter_result(pairs=[(m, ind)])
+    sr = _scoring_result_with(clean=[("RC", 75.0)])
+    result = run_candidate_selector(sr, fr)
+
+    assert result.clean == []
+    assert len(result.rejected) == 1
+    rej = result.rejected[0]
+    assert rej.rejection_reason == ENTRY_REJECT_NO_QUALIFIED_ANCHOR
+    assert rej.setup_type == "reclaim"
+
+
+def test_run_selector_rejected_not_double_counted_in_total() -> None:
+    """SelectionResult.total_count counts only accepted candidates."""
+    m = _metrics("BO", price_usd=100.0, dist_from_20d_high=-0.02, return_7d=0.15)
+    ind = _indicator("BO", trend_state="strong_up")
+    fr = _filter_result(pairs=[(m, ind)])
+    sr = _scoring_result_with(clean=[("BO", 80.0)])
+    cfg = SelectorConfig(max_chase_current_price_pct=0.0)
+    result = run_candidate_selector(sr, fr, cfg)
+    assert len(result.rejected) == 1
+    assert result.total_count == 0
+    assert result.all_candidates == []
+
+
+# ── Table-driven DB-invariant coverage over varied inputs ─────────────────────
+
+
+_INVARIANT_CASES = [
+    # (label, price_usd, atr_pct_7d, dist_from_20d_high, return_7d, return_3d, category)
+    ("baseline_clean", 50_000.0, 8.0, -0.15, 0.12, 0.06, "clean"),
+    ("low_atr_clean", 100.0, 3.0, -0.10, 0.08, 0.04, "clean"),
+    ("high_atr_clean", 100.0, 17.0, -0.25, 0.10, 0.05, "clean"),
+    ("at_atr_floor_clean", 25.0, 2.5, -0.18, 0.07, 0.03, "clean"),
+    ("deep_below_20d_high", 100.0, 8.0, -0.30, 0.06, 0.02, "clean"),
+    ("near_20d_high_clean", 100.0, 6.0, -0.05, 0.05, 0.02, "clean"),
+    ("baseline_ugly", 5.0, 12.0, -0.20, 0.18, 0.10, "ugly"),
+    ("high_atr_ugly", 0.50, 22.0, -0.25, 0.20, 0.12, "ugly"),
+    ("low_price_ugly", 0.001, 15.0, -0.18, 0.15, 0.08, "ugly"),
+]
+
+
+@pytest.mark.parametrize(
+    "label, price_usd, atr_pct_7d, dist_from_20d_high, return_7d, return_3d, category",
+    _INVARIANT_CASES,
+    ids=[c[0] for c in _INVARIANT_CASES],
+)
+def test_trade_params_invariants_table(
+    label: str,
+    price_usd: float,
+    atr_pct_7d: float,
+    dist_from_20d_high: float,
+    return_7d: float,
+    return_3d: float,
+    category: str,
+) -> None:
+    """DB ordering invariants must hold for every accepted candidate across a
+    range of price scales, ATR magnitudes, and 20d-high distances.
+
+    `stop_loss < entry_price < exit_price` and `entry_price_low <= entry_price_high`
+    are guarantees of compute_trade_parameters; this test pins them across
+    realistic input variation, not just the baseline fixture.
+
+    Inputs are tuned so classify_setup() returns 'pullback' for every row
+    (price_vs_ema20_pct=8 keeps us out of the reclaim band; dist_from_20d_high
+    < -3% keeps us out of the breakout band). An EMA-20 anchor is provided
+    so the pullback path always finds a qualified support level.
+    """
+    m = _metrics(
+        symbol="X",
+        price_usd=price_usd,
+        atr_pct_7d=atr_pct_7d,
+        dist_from_20d_high=dist_from_20d_high,
+        return_7d=return_7d,
+        return_3d=return_3d,
+    )
+    # EMA-20 anchor at 92% of price — qualifies as pullback support
+    # (>= min_pullback_discount of 2%) regardless of price scale.
+    ind = _indicator(
+        "X",
+        price_vs_ema20_pct=8.0,
+        ema_20=price_usd * 0.92,
+    )
+    score = _score("X", 75.0 if category == "clean" else 65.0, category)
+    tp = compute_trade_parameters(m, ind, score, category, _CFG)
+    assert tp.stop_loss < tp.entry_price, f"{label}: stop >= entry"
+    assert tp.exit_price > tp.entry_price, f"{label}: exit <= entry"
+    assert tp.entry_price_low is not None
+    assert tp.entry_price_high is not None
+    assert tp.entry_price_low <= tp.entry_price_high, f"{label}: zone inverted"
+    assert tp.exit_price >= tp.entry_price * 1.05 - 1e-6, f"{label}: below 5% floor"
