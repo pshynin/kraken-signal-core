@@ -304,11 +304,12 @@ class ScoreBreakdown:
         'clean'     — score >= 70 + clean-specific thresholds (volume, RSI, anti-chase)
         'ugly'      — score >= 62 + ugly-specific thresholds
         'watchlist' — score >= 55, just misses clean/ugly qualification
+        'low_score' — score < 55; scored but below the watchlist floor
         'excluded'  — used by the DB persister for hard-filtered assets (not from scorer)
     """
 
     symbol: str
-    category: str | None  # 'clean' | 'ugly' | 'watchlist' | 'excluded' | None
+    category: str | None  # 'clean' | 'ugly' | 'watchlist' | 'low_score' | 'excluded' | None
     exclusion_reason: str | None  # None for scored assets; populated from HardFilterResult
 
     score_total: float  # 0–100
@@ -346,6 +347,10 @@ class ScoringResult:
     @property
     def watchlist(self) -> list[ScoreBreakdown]:
         return [s for s in self.scores if s.category == "watchlist"]
+
+    @property
+    def low_score(self) -> list[ScoreBreakdown]:
+        return [s for s in self.scores if s.category == "low_score"]
 
     @property
     def clean_count(self) -> int:
@@ -423,15 +428,40 @@ class ScoredCandidate:
 
 
 @dataclass
+class EntryRejection:
+    """A scored candidate that was dropped by the entry engine.
+
+    Produced by `run_candidate_selector` when `compute_entry_levels()` or a
+    selector-side validity gate cannot yield a viable trade plan. Persisted to
+    `asset_state_history` with `to_state='entry_rejected'` and `reason` set to
+    one of `scanner.rejection_reasons.ENTRY_REJECTION_REASONS`.
+
+    Fields mirror the audit-row shape: `metadata` is the JSONB blob; everything
+    else maps to a column on `asset_state_history` or is used by the persister
+    to look up `asset_id`.
+    """
+
+    symbol: str
+    category: str  # 'clean' | 'ugly' — the category the candidate would have entered
+    rank: int  # 1-based rank within `category` at the time of rejection
+    setup_type: str  # 'pullback' | 'breakout_trigger' | 'reclaim'
+    rejection_reason: str  # one of ENTRY_REJECTION_REASONS
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
 class SelectionResult:
     """Output of run_candidate_selector().
 
-    clean — top-N clean candidates sorted by score_total descending (rank 1 = best).
-    ugly  — top-N ugly candidates sorted by score_total descending.
+    clean    — top-N clean candidates sorted by score_total descending (rank 1 = best).
+    ugly     — top-N ugly candidates sorted by score_total descending.
+    rejected — candidates the entry engine could not produce a valid plan for;
+               persisted to asset_state_history as `entry_rejected`.
     """
 
     clean: list[ScoredCandidate] = field(default_factory=list)
     ugly: list[ScoredCandidate] = field(default_factory=list)
+    rejected: list[EntryRejection] = field(default_factory=list)
 
     @property
     def all_candidates(self) -> list[ScoredCandidate]:

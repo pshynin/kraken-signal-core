@@ -9,8 +9,11 @@
 // ── Asset lifecycle state machine ─────────────────────────────────────────────
 export type AssetState =
   | "excluded"
+  | "watchlist"        // scored at or above watchlist_min_score, not selected
+  | "low_score"        // scored below watchlist_min_score
   | "candidate_clean"
   | "candidate_ugly"
+  | "entry_rejected"   // selected but the entry engine produced no valid plan
   | "alerted"
   | "active"
   | "invalidated"
@@ -22,8 +25,11 @@ export type AssetState =
 
 export const ASSET_STATES: Record<AssetState, AssetState> = {
   excluded: "excluded",
+  watchlist: "watchlist",
+  low_score: "low_score",
   candidate_clean: "candidate_clean",
   candidate_ugly: "candidate_ugly",
+  entry_rejected: "entry_rejected",
   alerted: "alerted",
   active: "active",
   invalidated: "invalidated",
@@ -44,9 +50,14 @@ export const ACTIVE_STATES: AssetState[] = [
 ];
 
 // ── Candidate category (scoring output) ───────────────────────────────────────
-export type Category = "clean" | "ugly" | "excluded" | "watchlist";
+export type Category =
+  | "clean"
+  | "ugly"
+  | "excluded"
+  | "watchlist"
+  | "low_score"; // scored but below watchlist_min_score — distinct from 'excluded'
 
-/** Category values that appear in candidate_recommendations (never 'excluded' or 'watchlist'). */
+/** Category values that appear in candidate_recommendations (never 'excluded', 'watchlist', or 'low_score'). */
 export type RecommendationCategory = "clean" | "ugly";
 
 // ── Suggested trade size buckets ──────────────────────────────────────────────

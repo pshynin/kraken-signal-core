@@ -7,7 +7,7 @@ How `apps/scanner/scanner/scoring.py` turns one passing asset into a single 0–
 For every asset that clears the [hard filter](#hard-filter), the scoring engine:
 
 1. Computes nine independent sub-scores (sum capped at 100).
-2. Assigns a category — `clean`, `ugly`, or `watchlist` — using thresholds + qualification gates.
+2. Assigns a category — `clean`, `ugly`, `watchlist`, or `low_score` — using thresholds + qualification gates.
 3. Maps the total to a heuristic `probability_pct` percentile.
 
 Output is sorted by `score_total` descending. The selector then takes the top-N per category (see [entry-engine.md](entry-engine.md) for what happens after).
@@ -52,7 +52,7 @@ Each sub-scorer has graceful fallbacks for missing inputs — typically a neutra
 
 ## Category Assignment
 
-`_assign_category()` decides the category from `score_total` + qualification gates. Order matters: clean is checked first, then ugly, then watchlist.
+`_assign_category()` decides the category from `score_total` + qualification gates. Order matters: clean is checked first, then ugly, then watchlist, then low_score.
 
 ### `clean` — all of the following
 
@@ -71,7 +71,12 @@ Each sub-scorer has graceful fallbacks for missing inputs — typically a neutra
 ### `watchlist`
 
 - `score_total >= watchlist.min_score` (default **55**) — and didn't qualify for clean or ugly.
-- Assets below 55 still fall through to `watchlist` today because `_assign_category()` defaults to that category. If you tighten this later, expect persister and state machine changes.
+- The watchlist floor is enforced: scores below it return the distinct `low_score` category instead.
+
+### `low_score`
+
+- `score_total < watchlist.min_score` (default **55**).
+- Scored but below the watchlist floor — distinct from `excluded` (which is reserved for hard-filter failures). Useful for auditing how the universe ranks below tradable thresholds without polluting the watchlist.
 
 ### `excluded`
 

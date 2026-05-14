@@ -63,7 +63,6 @@ Real issues in the current code that aren't ambiguities or "future work". Addres
 - **Type contracts mirrored by hand.** `apps/scanner/scanner/models.py`, `packages/shared-types/src/scanner.ts`, and `packages/shared-types/src/database.ts` must be kept in sync manually. No codegen; PRs that change one but not the others have shipped before. See [data-model.md](data-model.md).
 - **No DB-level CHECK on `asset_state_history.to_state`.** Any string is accepted. The set of allowed values is enforced only by convention and by [state-machine.md](state-machine.md). Acceptable today; revisit if multi-author churn introduces inconsistent values.
 - **RLS disabled.** `assets` (and likely other tables) ship with RLS off for the single-user MVP. Enable + add policies before multi-user.
-- **`watchlist_min_score` is partly informational.** `_assign_category()` returns `watchlist` both for scores ≥ 55 and as the catch-all default for anything below — so the floor doesn't actually prune. See [scoring-model.md](scoring-model.md#watchlist).
 - **No retry on Discord webhook failures.** A 5xx response is logged to `alerts_sent` with `delivery_status != 'sent'` and the candidate does not get a state-history `alerted` row. Dedup logic correctly considers only `'sent'` rows, so the next run will re-attempt — but there is no within-run retry.
 - **`scan_summary.json` write is best-effort.** Failures are swallowed; only the workflow's `if: always()` step recovers a degraded summary.
 

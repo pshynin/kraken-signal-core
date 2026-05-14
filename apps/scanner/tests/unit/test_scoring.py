@@ -329,6 +329,31 @@ def test_assign_category_watchlist() -> None:
     assert cat == "watchlist"
 
 
+def test_assign_category_low_score_below_watchlist_floor() -> None:
+    """Scores below watchlist_min_score get the distinct low_score category."""
+    cat = _assign_category(40.0, _metrics(), _indicator(rsi_14=55.0), _DEFAULT_CFG)
+    assert cat == "low_score"
+
+
+def test_assign_category_at_watchlist_floor_is_watchlist() -> None:
+    """The floor is inclusive: score == watchlist_min_score returns 'watchlist'."""
+    cat = _assign_category(
+        _DEFAULT_CFG.watchlist_min_score, _metrics(), _indicator(rsi_14=55.0), _DEFAULT_CFG
+    )
+    assert cat == "watchlist"
+
+
+def test_assign_category_just_below_watchlist_floor_is_low_score() -> None:
+    """One-tenth below the floor returns 'low_score', not 'watchlist'."""
+    cat = _assign_category(
+        _DEFAULT_CFG.watchlist_min_score - 0.1,
+        _metrics(),
+        _indicator(rsi_14=55.0),
+        _DEFAULT_CFG,
+    )
+    assert cat == "low_score"
+
+
 # ── score_asset ───────────────────────────────────────────────────────────────
 
 

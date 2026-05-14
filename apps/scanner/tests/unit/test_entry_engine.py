@@ -370,3 +370,51 @@ def test_pullback_entry_levels_are_frozen() -> None:
 def test_unknown_setup_type_defaults_to_pullback_logic() -> None:
     levels = compute_entry_levels("unknown_type", _metrics(), _indicator(), _CFG)
     assert levels.preferred_entry < 100.0
+
+
+# ── EntryEngineError + rejection-reason constants ─────────────────────────────
+
+
+def test_breakout_missing_dist_raises_typed_error_with_reason() -> None:
+    """Breakout setup with no dist_from_20d_high raises EntryEngineError carrying
+    the ENTRY_REJECT_MISSING_DIST_20D constant."""
+    from scanner.entry_engine import EntryEngineError
+    from scanner.rejection_reasons import ENTRY_REJECT_MISSING_DIST_20D
+
+    m = _metrics(dist_from_20d_high=None, price_usd=100.0)
+    with pytest.raises(EntryEngineError) as exc:
+        compute_entry_levels("breakout_trigger", m, _indicator(), _CFG)
+    assert exc.value.reason == ENTRY_REJECT_MISSING_DIST_20D
+
+
+def test_reclaim_no_anchor_raises_typed_error_with_reason() -> None:
+    """Reclaim setup with no qualifying anchor raises EntryEngineError carrying
+    the ENTRY_REJECT_NO_QUALIFIED_ANCHOR constant."""
+    from scanner.entry_engine import EntryEngineError
+    from scanner.rejection_reasons import ENTRY_REJECT_NO_QUALIFIED_ANCHOR
+
+    # Reclaim requires an EMA-20 or VWAP within [-4%, -0.1%] of price.
+    # Provide both as None so no anchor qualifies.
+    ind = _indicator(ema_20=None, vwap=None)
+    with pytest.raises(EntryEngineError) as exc:
+        compute_entry_levels("reclaim", _metrics(price_usd=100.0), ind, _CFG)
+    assert exc.value.reason == ENTRY_REJECT_NO_QUALIFIED_ANCHOR
+
+
+def test_entry_engine_error_is_value_error_subclass() -> None:
+    """EntryEngineError preserves ValueError compatibility for legacy callers."""
+    from scanner.entry_engine import EntryEngineError
+    from scanner.rejection_reasons import ENTRY_REJECT_UNKNOWN
+
+    err = EntryEngineError(ENTRY_REJECT_UNKNOWN, "something went wrong")
+    assert isinstance(err, ValueError)
+    assert err.reason == ENTRY_REJECT_UNKNOWN
+
+
+def test_entry_engine_error_default_message_is_reason() -> None:
+    """When no explicit message is provided, str(exc) == reason."""
+    from scanner.entry_engine import EntryEngineError
+    from scanner.rejection_reasons import ENTRY_REJECT_UNKNOWN
+
+    err = EntryEngineError(ENTRY_REJECT_UNKNOWN)
+    assert str(err) == ENTRY_REJECT_UNKNOWN
