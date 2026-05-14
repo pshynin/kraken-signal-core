@@ -41,6 +41,28 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from scanner.models import AssetIndicators, MarketMetrics
+from scanner.rejection_reasons import (
+    ENTRY_REJECT_MISSING_DIST_20D,
+    ENTRY_REJECT_NO_QUALIFIED_ANCHOR,
+)
+
+
+class EntryEngineError(ValueError):
+    """Raised when the entry engine cannot produce a valid trade plan.
+
+    Carries a `reason` field set to one of the constants in
+    `scanner.rejection_reasons`. The selector catches this exception and
+    records an `EntryRejection`; other exceptions propagate.
+
+    Subclasses `ValueError` so existing callers that catch `ValueError`
+    continue to work, but new code should narrow to this class to avoid
+    swallowing genuine bugs.
+    """
+
+    def __init__(self, reason: str, message: str | None = None) -> None:
+        super().__init__(message or reason)
+        self.reason = reason
+
 
 # ── EntryConfig protocol ──────────────────────────────────────────────────────
 
@@ -260,7 +282,10 @@ def _breakout_entry_levels(
     """Breakout-trigger: anchor to the reconstructed 20-day high."""
     dist = metrics.dist_from_20d_high
     if dist is None:
-        raise ValueError(f"{symbol}: breakout_trigger setup requires dist_from_20d_high")
+        raise EntryEngineError(
+            ENTRY_REJECT_MISSING_DIST_20D,
+            f"{symbol}: breakout_trigger setup requires dist_from_20d_high",
+        )
 
     # Reconstruct: dist = (price − high) / high  →  high = price / (1 + dist)
     twenty_d_high = round(price / (1.0 + dist), 8)
@@ -307,10 +332,11 @@ def _reclaim_entry_levels(
     ]
 
     if not near:
-        raise ValueError(
+        raise EntryEngineError(
+            ENTRY_REJECT_NO_QUALIFIED_ANCHOR,
             f"{symbol}: reclaim setup found no level within "
             f"[{_RECLAIM_MIN_PROXIMITY * 100:.1f}%, {_RECLAIM_MAX_PROXIMITY * 100:.0f}%] "
-            f"below price {price}"
+            f"below price {price}",
         )
 
     anchor_val, anchor_type = max(near, key=lambda x: x[0])

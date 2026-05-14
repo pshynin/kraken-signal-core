@@ -62,11 +62,13 @@ import logging
 from dataclasses import dataclass
 
 from scanner.entry_engine import (
+    EntryEngineError,
     classify_setup,
     compute_entry_levels,
 )
 from scanner.models import (
     AssetIndicators,
+    EntryRejection,
     FilterResult,
     MarketMetrics,
     ScoreBreakdown,
@@ -74,6 +76,11 @@ from scanner.models import (
     ScoringResult,
     SelectionResult,
     TradeParameters,
+)
+from scanner.rejection_reasons import (
+    ENTRY_REJECT_BREAKOUT_CHASE_CEILING,
+    ENTRY_REJECT_PULLBACK_MAX_ABOVE_PRICE,
+    ENTRY_REJECT_RECLAIM_MAX_ABOVE_PRICE,
 )
 
 log = logging.getLogger(__name__)
@@ -248,17 +255,24 @@ def compute_trade_parameters(
     # pullback / reclaim: max_entry must sit entirely below market.
     # breakout_trigger:   preferred may be above market, but capped at +max_chase_current_price_pct.
     if setup_type != "breakout_trigger" and entry_price_high >= price:
-        raise ValueError(
+        reason = (
+            ENTRY_REJECT_PULLBACK_MAX_ABOVE_PRICE
+            if setup_type == "pullback"
+            else ENTRY_REJECT_RECLAIM_MAX_ABOVE_PRICE
+        )
+        raise EntryEngineError(
+            reason,
             f"{metrics.symbol}: {setup_type} max_entry {entry_price_high} "
-            f">= current price {price}; rejecting"
+            f">= current price {price}; rejecting",
         )
     if setup_type == "breakout_trigger" and entry_price > price * (
         1.0 + config.max_chase_current_price_pct
     ):
-        raise ValueError(
+        raise EntryEngineError(
+            ENTRY_REJECT_BREAKOUT_CHASE_CEILING,
             f"{metrics.symbol}: breakout preferred_entry {entry_price} "
             f"> current price × {1 + config.max_chase_current_price_pct:.3f}; "
-            "rejecting over-chased breakout"
+            "rejecting over-chased breakout",
         )
 
     # ── Stop loss ──────────────────────────────────────────────────────────────
@@ -357,8 +371,9 @@ def run_candidate_selector(
         scores: list[ScoreBreakdown],
         category: str,
         max_n: int,
-    ) -> list[ScoredCandidate]:
+    ) -> tuple[list[ScoredCandidate], list[EntryRejection]]:
         candidates: list[ScoredCandidate] = []
+        rejections: list[EntryRejection] = []
         for rank, score_bd in enumerate(scores[:max_n], start=1):
             sym = score_bd.symbol
             metrics = metrics_by_symbol.get(sym)
@@ -380,18 +395,40 @@ def run_candidate_selector(
                         indicators=indicator,
                     )
                 )
+            except EntryEngineError as exc:
+                setup_type = classify_setup(metrics, indicator)
+                log.info(
+                    "%s entry rejected (%s): %s",
+                    sym,
+                    exc.reason,
+                    exc,
+                )
+                rejections.append(
+                    EntryRejection(
+                        symbol=sym,
+                        category=category,
+                        rank=rank,
+                        setup_type=setup_type,
+                        rejection_reason=exc.reason,
+                        metadata={
+                            "score_total": score_bd.score_total,
+                            "probability_pct": score_bd.probability_pct,
+                            "current_price": metrics.price_usd,
+                        },
+                    )
+                )
             except Exception as exc:
                 log.warning("%s trade parameter computation failed: %s", sym, exc)
-        return candidates
+        return candidates, rejections
 
     log.info(
         "Stage 6 — selecting from %d clean / %d ugly scored assets",
         scoring_result.clean_count,
         scoring_result.ugly_count,
     )
-    clean = _build(scoring_result.clean, "clean", config.max_clean_candidates)
-    ugly = _build(scoring_result.ugly, "ugly", config.max_ugly_candidates)
-    result = SelectionResult(clean=clean, ugly=ugly)
+    clean, clean_rejected = _build(scoring_result.clean, "clean", config.max_clean_candidates)
+    ugly, ugly_rejected = _build(scoring_result.ugly, "ugly", config.max_ugly_candidates)
+    result = SelectionResult(clean=clean, ugly=ugly, rejected=clean_rejected + ugly_rejected)
 
     log.info(
         "Stage 6 complete — %d clean + %d ugly candidates selected",

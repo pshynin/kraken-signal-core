@@ -38,7 +38,8 @@ Category assignment (defaults from migration 0012 strategy_settings seed):
     clean     — score >= 70 + vol_24h >= $2M + vol_7d >= $5M + RSI [52,68]
                 + return_3d <= 30% + price_vs_ema20 <= 12%
     ugly      — score >= 62 + RSI [50,72]
-    watchlist — score >= 55
+    watchlist — score >= 55, just misses clean/ugly qualification
+    low_score — score < 55 (scored but below the watchlist floor)
     (anything below 55 stays scored but unclassified; the DB persister PR 10
      will record these with category=NULL)
 
@@ -508,13 +509,14 @@ def _assign_category(
     indicator: AssetIndicators,
     config: ScoringConfig,
 ) -> str:
-    """Classify asset into clean | ugly | watchlist based on score and thresholds.
+    """Classify asset into clean | ugly | watchlist | low_score based on score and thresholds.
 
     Clean requires: score >= 70 AND volume floors AND RSI in preferred range
                    AND anti-chase return/EMA20 constraints.
     Ugly requires:  score >= 62 AND RSI in ugly preferred range.
     Watchlist:      score >= 55 (doesn't qualify for either tradeable category).
-    Returns 'watchlist' for all others that passed the hard filter but scored < 55.
+    Low_score:      score < 55 — scored but below the watchlist floor; distinct
+                    from 'excluded' (which is reserved for hard-filter failures).
     """
     rsi = indicator.tf_4h.rsi_14
     ret3 = metrics.return_3d
@@ -543,7 +545,7 @@ def _assign_category(
     if score_total >= config.watchlist_min_score:
         return "watchlist"
 
-    return "watchlist"
+    return "low_score"
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
