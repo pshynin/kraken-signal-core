@@ -34,6 +34,7 @@ When a column or field changes, update every affected layer in the same PR.
 | 0015 | `scan_runs` extension | Adds `timed_out` status + `run_timeout_minutes` finalisation | 20260512000015 |
 | 0016 | `candidate_recommendations` fix | Entry validity columns + check fix | 20260512000016 |
 | 0017 | `candidate_recommendations` extension | Entry engine columns (`setup_type`, `support_anchor_*`, etc.) | 20260512000017 |
+| 0018 | `candidate_scores` CHECK extension | Adds `'low_score'` to `cscores_category_check` for the watchlist-floor category | 20260514011523 |
 
 > RLS is currently **disabled** for the single-user MVP. Enable + add policies before multi-user.
 
@@ -70,7 +71,7 @@ Status values: `'running' | 'completed' | 'partial' | 'failed' | 'timed_out'` (a
 | `score_catalyst` | `.score_catalyst` | /10 |
 | `score_supply_risk` | `.score_supply_risk` | /5 |
 | `score_execution` | `.score_execution` | /5 |
-| `category` | `.category` | `'clean' \| 'ugly' \| 'watchlist' \| 'excluded' \| NULL` |
+| `category` | `.category` | `'clean' \| 'ugly' \| 'watchlist' \| 'low_score' \| 'excluded' \| NULL` |
 | `probability_pct` | `.probability_pct` | Heuristic; see [scoring-model.md](scoring-model.md) |
 
 ### `candidate_recommendations`

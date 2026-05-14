@@ -22,9 +22,36 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ## [Unreleased]
 
+### Added
+
+- **Entry-engine rejection audit trail.** Candidates dropped by the entry-engine validity gates (over-chased breakout, pullback/reclaim max-entry above current price, missing 20-day-high data, no qualifying reclaim anchor) are now recorded to `asset_state_history` with `to_state='entry_rejected'`. Previously these were logged-and-dropped with no auditable record.
+- **`low_score` category.** Scores below `watchlist_min_score` (default 55) get a distinct `low_score` category instead of silently falling through to `watchlist`. Distinct from `excluded`, which remains reserved for hard-filter failures. Mirrored across Python (`models.py`), SQL (`candidate_scores.category` CHECK), and TS (`Category`, `AssetState` types).
+- **Shared rejection-reason constants** in `apps/scanner/scanner/rejection_reasons.py`. Single source of truth for both the raise site (`entry_engine.py`) and the audit writer (`state_machine.py`).
+- **`EntryEngineError(ValueError)`** typed exception carrying a `.reason` attribute. The selector narrows its `except` to this class so genuine bugs are not silently swallowed.
+- **`EntryRejection` dataclass** and **`SelectionResult.rejected`** field. Mirrored in TS as `EntryRejection` interface plus `ScanOutput.entry_rejected`.
+
+### Changed
+
+- `_assign_category()` now returns `'low_score'` for scores below the watchlist floor instead of returning `'watchlist'` as a catch-all default. `ScoringResult` gains a `low_score` property mirroring `watchlist`.
+- `state_machine._build_transition_rows()` emits rows for the new `low_score` and `entry_rejected` states. Module docstring updated.
+
+### Schema
+
+- Migration **`20260514011523_extend_cscores_category_check.sql`** drops and recreates `cscores_category_check` to permit `'low_score'`. Required because `candidate_scores.category` had a CHECK constraint that the new value would otherwise violate.
+
 ### Fixed
 
 - `scanner_alert_dedup_hours` from `strategy_settings` now reaches `AlertConfig`. `load_alert_config()` accepts an optional `StrategySettings`; when provided, its `scanner_alert_dedup_hours` overrides the `AlertConfig` 8h default. Webhook URLs continue to come from environment variables only.
+- Closed known gap #5 (`watchlist_min_score` was informational only). Removed from `docs/roadmap.md` known-gaps list.
+
+### Tests
+
+- 24 new tests added (state machine, scoring boundary, selector validity gates, entry-engine typed errors, parametrised invariant-table coverage). Total unit tests: 358.
+
+### Known Issues
+
+- `to_state` still has no DB-level CHECK constraint — the new `entry_rejected` and `low_score` values are enforced only by convention. A future migration will close this (carried as gap #3 in `docs/roadmap.md`).
+- `ScanStatus` TS type in `packages/shared-types/src/enums.ts` is missing `'timed_out'` (added in migration 0015); pre-existing drift, not from this change.
 
 ---
 

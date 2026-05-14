@@ -13,7 +13,7 @@
  *   → StateMachine (PR 10) → Persister (PR 10) → Alerter (PR 11)
  */
 
-import type { RecommendationCategory, SizeBucket, Timeframe } from "./enums";
+import type { Category, RecommendationCategory, SizeBucket, Timeframe } from "./enums";
 
 // ── PR 4: Universe Loader ─────────────────────────────────────────────────────
 
@@ -137,7 +137,7 @@ export interface HardFilterResult {
 export interface ScoreBreakdown {
   asset_id: string;
   symbol: string;
-  category: "clean" | "ugly" | "excluded" | "watchlist" | null;
+  category: Category | null;
   exclusion_reason: string | null;
 
   score_total: number;
@@ -187,6 +187,28 @@ export interface ScoredCandidate {
   indicators: AssetIndicators;
 }
 
+/**
+ * A scored candidate that the entry engine could not produce a valid trade
+ * plan for. Mirrors scanner.models.EntryRejection.
+ *
+ * Persisted to asset_state_history with to_state='entry_rejected' and
+ * reason set to one of the entry-engine rejection-reason constants
+ * (see apps/scanner/scanner/rejection_reasons.py).
+ *
+ * Distinct from `excluded` (hard-filter failure) and `low_score`
+ * (scored below watchlist_min_score): an entry_rejected candidate would
+ * have scored well enough for clean/ugly but failed the entry-engine
+ * validity gates (e.g. over-chased breakout, no qualified reclaim anchor).
+ */
+export interface EntryRejection {
+  symbol: string;
+  category: RecommendationCategory;
+  rank: number;
+  setup_type: "pullback" | "breakout_trigger" | "reclaim";
+  rejection_reason: string;
+  metadata: Record<string, unknown>;
+}
+
 // ── PR 10: Run persister ──────────────────────────────────────────────────────
 
 /** Summary written back to scan_runs at completion. */
@@ -218,5 +240,6 @@ export interface ScanOutput {
   status: "completed" | "failed" | "partial";
   clean_candidates: ScoredCandidate[];
   ugly_candidates: ScoredCandidate[];
+  entry_rejected: EntryRejection[];
   stats: ScanRunFinalStats;
 }

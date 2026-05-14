@@ -10,13 +10,15 @@ How `apps/scanner/scanner/state_machine.py` records the lifecycle of every asset
 
 ## States
 
-Five values are written by the scanner today. The DB column `asset_state_history.to_state` is `TEXT` (no CHECK constraint), so additional values can be introduced without a migration — but you should still document them here.
+Seven values are written by the scanner today. The DB column `asset_state_history.to_state` is `TEXT` (no CHECK constraint), so additional values can be introduced without a migration — but you should still document them here.
 
 | State | Written when | Source |
 |---|---|---|
 | `candidate_clean` | Asset is in the top-N clean candidates this run | `record_initial_transitions()` |
 | `candidate_ugly` | Asset is in the top-N ugly candidates this run | `record_initial_transitions()` |
-| `watchlist` | Asset scored but did not make either top-N table | `record_initial_transitions()` |
+| `watchlist` | Asset scored at or above `watchlist_min_score` but did not make either top-N table | `record_initial_transitions()` |
+| `low_score` | Asset scored below `watchlist_min_score` — distinct from `excluded` | `record_initial_transitions()` |
+| `entry_rejected` | Asset would have entered `candidate_clean`/`candidate_ugly` but the entry engine produced no valid trade plan | `record_initial_transitions()` |
 | `excluded` | Asset failed the hard filter | `record_initial_transitions()` |
 | `alerted` | Discord delivery succeeded for a `candidate_*` row | `record_alerted_transition()` |
 
@@ -33,6 +35,8 @@ Called once per run by `persister.persist_run()`. For every asset processed this
    - Every candidate in `SelectionResult.clean` and `.ugly` → `candidate_clean` / `candidate_ugly`
    - Every hard-filtered asset in `FilterResult.exclusions` → `excluded`
    - Every scored-but-unselected asset in `ScoringResult.watchlist` → `watchlist`
+   - Every below-floor score in `ScoringResult.low_score` → `low_score`
+   - Every entry-engine rejection in `SelectionResult.rejected` → `entry_rejected`
 3. Bulk-inserts in chunks of `_BATCH_SIZE = 200`.
 
 `from_state` is the prior `to_state`, or `NULL` for first-ever entries. Reason strings:
@@ -42,12 +46,20 @@ Called once per run by `persister.persist_run()`. For every asset processed this
 | `new_candidate` | `to_state` is `candidate_*` and the prior state was different |
 | `retained_candidate` | `to_state` is `candidate_*` and the prior state was the same `candidate_*` |
 | `watchlist_entry` | `to_state` is `watchlist` |
+| `low_score_entry` | `to_state` is `low_score` |
+| _entry-rejection reason_ | `to_state` is `entry_rejected` — one of the constants in `scanner.rejection_reasons` |
 | _hard-filter reason key_ | `to_state` is `excluded` — copied from `HardFilterResult.exclusion_reason` (see [scoring-model.md](scoring-model.md#hard-filter)) |
 
 `metadata` (JSONB) snapshot per row:
 - Candidates: `score_total`, `rank`, `probability_pct`, `price_usd`.
 - Watchlist: `score_total`, `probability_pct`.
+- Low_score: `score_total`, `probability_pct` (same shape as watchlist, distinct state).
+- Entry_rejected: `category`, `rank`, `setup_type`, `score_total`, `probability_pct`, `current_price`.
 - Excluded: `NULL`.
+
+### Entry-rejection reasons
+
+The full set of reason constants for `to_state='entry_rejected'` lives in `apps/scanner/scanner/rejection_reasons.py` (single source of truth). Today's set covers: over-chased breakouts, pullback/reclaim max-entry above current price, missing 20-day-high data, no qualifying reclaim anchor, and a catch-all unknown reason. New reasons must be added to that module and exported via `ENTRY_REJECTION_REASONS`.
 
 ### Alerted transitions — `record_alerted_transition()`
 

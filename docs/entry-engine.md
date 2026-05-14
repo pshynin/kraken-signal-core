@@ -67,7 +67,9 @@ After `compute_entry_levels()` returns, the selector enforces:
 | `pullback` / `reclaim` | `max_entry < current_price` — both bounds must sit entirely below market |
 | `breakout_trigger` | `preferred_entry <= current_price × (1 + max_chase_current_price_pct)` — default ceiling **+3%** above market |
 
-Candidates that fail are dropped with a warning log. **No relaxation of these gates** — they exist to prevent the scanner from suggesting chases.
+Candidates that fail are dropped from `SelectionResult.clean`/`.ugly` and recorded on `SelectionResult.rejected` as `EntryRejection` records. The state machine then persists each rejection to `asset_state_history` with `to_state='entry_rejected'` and `reason` set to one of the constants in `scanner.rejection_reasons`. See [state-machine.md](state-machine.md#entry-rejection-reasons) for the full list and metadata shape. **No relaxation of these gates** — they exist to prevent the scanner from suggesting chases.
+
+Internally, both validity gates and the `entry_engine.py` raise sites use a typed `EntryEngineError(ValueError)` exception that carries the rejection-reason constant on `.reason`. The selector catches only this class — other exceptions still propagate so genuine bugs are not silently swallowed.
 
 ## Stop Loss
 
