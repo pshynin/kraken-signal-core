@@ -94,11 +94,14 @@ Result: `exit_price > entry_price` is guaranteed by the 5% floor.
 
 ## Size Buckets
 
-Assigned by `_assign_size_bucket()` based on `score_total` and `volume_7d_avg_usd`. Returned values must match `SIZE_BUCKETS` in `models.py` and the `crecs_size_bucket_check` DB constraint.
+Assigned by `_assign_size_bucket()` based on `score_total` and `volume_7d_avg_usd`. The 8-tier ladder gives clean candidates finer upper-end granularity; ugly candidates remain capped at `5k-10k` (sub-$5M-liquidity assets do not warrant 5-figure-plus sizing). Returned values must match `SIZE_BUCKETS` in `models.py` and the `crecs_size_bucket_check` DB constraint.
 
 | Category | Score | 7d avg volume | Bucket |
 |---|---|---|---|
-| `clean` | ≥ 82 | ≥ $50M | `20k+` |
+| `clean` | ≥ 88 | ≥ $200M | `100k+` |
+| `clean` | ≥ 85 | ≥ $100M | `50k-100k` |
+| `clean` | ≥ 82 | ≥ $75M | `35k-50k` |
+| `clean` | ≥ 80 | ≥ $50M | `20k-35k` |
 | `clean` | ≥ 75 | ≥ $20M | `10k-20k` |
 | `clean` | ≥ 70 | ≥ $10M | `5k-10k` |
 | `clean` | (else) | (else) | `2k-5k` |

@@ -364,7 +364,16 @@ class ScoringResult:
 # ── PR 9: Candidate Selector + Trade Parameters ───────────────────────────────
 
 # Valid size bucket values — must match crecs_size_bucket_check DB constraint.
-SIZE_BUCKETS: tuple[str, ...] = ("2k", "2k-5k", "5k-10k", "10k-20k", "20k+")
+SIZE_BUCKETS: tuple[str, ...] = (
+    "2k",
+    "2k-5k",
+    "5k-10k",
+    "10k-20k",
+    "20k-35k",
+    "35k-50k",
+    "50k-100k",
+    "100k+",
+)
 
 
 @dataclass
@@ -392,7 +401,7 @@ class TradeParameters:
     exit_price: float  # target / sell order price
     stop_loss: float  # stop loss price
 
-    suggested_size_bucket: str  # '2k' | '2k-5k' | '5k-10k' | '10k-20k' | '20k+'
+    suggested_size_bucket: str  # one of SIZE_BUCKETS (8-tier set)
     expected_gain_pct: float  # (exit - entry) / entry × 100
     reward_risk_ratio: float  # (exit - entry) / (entry - stop_loss)
     notes: str | None  # scanner-generated rationale for Discord / dashboard

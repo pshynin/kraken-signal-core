@@ -184,10 +184,45 @@ def test_ugly_stop_wider_than_clean() -> None:
 # ── _assign_size_bucket ───────────────────────────────────────────────────────
 
 
-def test_size_bucket_clean_20k_plus() -> None:
+def test_size_bucket_clean_100k_plus() -> None:
+    """Highest tier: requires score >= 88 AND v7 >= $200M."""
+    s = _score(total=90.0)
+    m = _metrics(volume_7d_avg_usd=250_000_000)
+    assert _assign_size_bucket(s, m, "clean") == "100k+"
+
+
+def test_size_bucket_clean_50k_100k() -> None:
+    s = _score(total=86.0)
+    m = _metrics(volume_7d_avg_usd=120_000_000)
+    assert _assign_size_bucket(s, m, "clean") == "50k-100k"
+
+
+def test_size_bucket_clean_35k_50k() -> None:
+    s = _score(total=83.0)
+    m = _metrics(volume_7d_avg_usd=80_000_000)
+    assert _assign_size_bucket(s, m, "clean") == "35k-50k"
+
+
+def test_size_bucket_clean_20k_35k() -> None:
+    """Replaces the old `20k+` test: same inputs (score=83, v7=$55M) now
+    land in `20k-35k` (the smallest of the new above-20k tiers)."""
     s = _score(total=83.0)
     m = _metrics(volume_7d_avg_usd=55_000_000)
-    assert _assign_size_bucket(s, m, "clean") == "20k+"
+    assert _assign_size_bucket(s, m, "clean") == "20k-35k"
+
+
+def test_size_bucket_clean_high_score_low_volume_falls_to_20k_35k() -> None:
+    """Score qualifies for 100k+ but v7 only meets the 20k-35k floor."""
+    s = _score(total=90.0)
+    m = _metrics(volume_7d_avg_usd=60_000_000)
+    assert _assign_size_bucket(s, m, "clean") == "20k-35k"
+
+
+def test_size_bucket_clean_high_volume_low_score_falls_to_10k_20k() -> None:
+    """v7 is huge but score is only 76 — must drop to 10k-20k."""
+    s = _score(total=76.0)
+    m = _metrics(volume_7d_avg_usd=300_000_000)
+    assert _assign_size_bucket(s, m, "clean") == "10k-20k"
 
 
 def test_size_bucket_clean_10k_20k() -> None:
@@ -208,6 +243,14 @@ def test_size_bucket_clean_default_2k_5k() -> None:
     assert _assign_size_bucket(s, m, "clean") == "2k-5k"
 
 
+def test_size_bucket_ugly_capped_at_5k_10k() -> None:
+    """Ugly category never reaches the new upper tiers regardless of score
+    or volume — the threshold ladder for ugly is unchanged."""
+    s = _score(total=90.0, category="ugly")
+    m = _metrics(volume_7d_avg_usd=500_000_000)
+    assert _assign_size_bucket(s, m, "ugly") == "5k-10k"
+
+
 def test_size_bucket_ugly_5k_10k() -> None:
     s = _score(total=71.0, category="ugly")
     m = _metrics(volume_7d_avg_usd=6_000_000)
@@ -224,6 +267,28 @@ def test_size_bucket_ugly_minimum_2k() -> None:
     s = _score(total=63.0, category="ugly")
     m = _metrics(volume_7d_avg_usd=800_000)
     assert _assign_size_bucket(s, m, "ugly") == "2k"
+
+
+def test_size_bucket_returns_value_in_size_buckets_set() -> None:
+    """Every assignment path returns a value present in models.SIZE_BUCKETS
+    (mirrors the crecs_size_bucket_check DB constraint)."""
+    from scanner.models import SIZE_BUCKETS
+
+    # Sample one input per clean tier and one per ugly tier.
+    samples: list[tuple[ScoreBreakdown, MarketMetrics, str]] = [
+        (_score(total=90.0), _metrics(volume_7d_avg_usd=250_000_000), "clean"),
+        (_score(total=86.0), _metrics(volume_7d_avg_usd=120_000_000), "clean"),
+        (_score(total=83.0), _metrics(volume_7d_avg_usd=80_000_000), "clean"),
+        (_score(total=80.0), _metrics(volume_7d_avg_usd=50_000_000), "clean"),
+        (_score(total=75.0), _metrics(volume_7d_avg_usd=22_000_000), "clean"),
+        (_score(total=70.0), _metrics(volume_7d_avg_usd=12_000_000), "clean"),
+        (_score(total=70.0), _metrics(volume_7d_avg_usd=1_000_000), "clean"),
+        (_score(total=70.0, category="ugly"), _metrics(volume_7d_avg_usd=6_000_000), "ugly"),
+        (_score(total=65.0, category="ugly"), _metrics(volume_7d_avg_usd=1_000_000), "ugly"),
+        (_score(total=63.0, category="ugly"), _metrics(volume_7d_avg_usd=800_000), "ugly"),
+    ]
+    for s, m, cat in samples:
+        assert _assign_size_bucket(s, m, cat) in SIZE_BUCKETS
 
 
 # ── compute_trade_parameters — DB constraint verification ─────────────────────
