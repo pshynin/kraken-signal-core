@@ -49,9 +49,8 @@ Tracking corresponds to README PRs not yet marked done. Where the work is small 
 | PR | Scope | Status |
 |---|---|---|
 | 24 | Denylist / policy exclusion layer | Pending |
-| 25 | Diagnostics + introspection improvements | Pending |
 
-PRs 20 (unique-symbol candidate counts), 22 (Discord alert redesign), and 23 (8-tier size buckets) shipped — see [CHANGELOG.md](../CHANGELOG.md).
+PRs 20 (unique-symbol candidate counts), 22 (Discord alert redesign), 23 (8-tier size buckets), and 25 (diagnostics + introspection) shipped — see [CHANGELOG.md](../CHANGELOG.md).
 
 When a PR ships, move it from this table to the "What Exists Today" section above, mark it ✅ in the README table, and add a line to [CHANGELOG.md](../CHANGELOG.md).
 

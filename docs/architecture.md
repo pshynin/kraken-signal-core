@@ -95,7 +95,9 @@ The only client-side data fetching is the settings form (`components/settings/se
 
 **Auth:** passcode gate via `middleware.ts` + `lib/auth.ts` (HMAC-signed cookie, no JWT). Set `DASHBOARD_PASSCODE` to enable; leave unset for open-access dev mode.
 
-**Layout:** the `(app)` route group wraps all authenticated pages with a shared sidebar (`components/shell/sidebar.tsx`). Current dashboard routes include `/`, `/candidates`, `/scans`, `/alerts`, and `/settings`.
+**Layout:** the `(app)` route group wraps all authenticated pages with a shared sidebar (`components/shell/sidebar.tsx`). Top-level dashboard routes: `/`, `/candidates`, `/scans`, `/alerts`, `/settings`. Deep-link routes accessed via clicks: `/scans/[id]` (run detail + diagnostic panels) and `/assets/[symbol]` (per-asset state-transition history).
+
+**Diagnostics surfaces (PR 25):** `/scans/[id]` includes panels for hard-filter exclusion counts (grouped by reason), entry-engine rejections (per-symbol with setup + reason), and below-threshold totals (watchlist + low_score). `/assets/[symbol]` reads `asset_state_history` directly to render a per-asset timeline. Symbol cells across `/candidates`, `/scans/[id]`, and `/alerts` link to the asset history page. All diagnostics queries are read-only over existing tables; no new scanner writes.
 
 ## Scheduling and Concurrency
 
