@@ -5,6 +5,10 @@ End-to-end view of how the scanner produces candidates, how the dashboard surfac
 ## Two Services, One Database
 
 ```text
+                                    ┌──────────────────────────┐
+                ┌──────────────────▶│  Discord webhooks        │
+                │                   │  (clean/ugly/system)     │
+                │                   └──────────────────────────┘
 ┌─────────────────────────┐         ┌──────────────────────────┐
 │ apps/scanner (Python)   │ writes  │  Supabase Postgres       │
 │ GitHub Actions cron     │────────▶│  (11 tables, migrations) │
@@ -15,10 +19,7 @@ End-to-end view of how the scanner produces candidates, how the dashboard surfac
 │ apps/web (Next.js 15)   │◀────────│                          │
 │ Vercel, always-on       │         └──────────────────────────┘
 └─────────────────────────┘
-                                    ┌──────────────────────────┐
-                ┌──────────────────▶│  Discord webhooks        │
-                                    │  (clean / ugly / system) │
-                                    └──────────────────────────┘
+                 
 ```
 
 There is **no direct scanner ↔ web communication**. Supabase is the only shared state. The scanner writes; the dashboard reads. Discord is fire-and-forget output from the scanner only.
