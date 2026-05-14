@@ -1,18 +1,23 @@
 """Alert Formatter + Discord Dispatcher — PR 11 / PR 22.
 
-Formats Discord messages for clean and ugly candidates, enforces an 8-hour
-deduplication window, POSTs to configured webhook URLs, and records every
-delivery attempt to alerts_sent. On a successful POST, the corresponding
-candidate_recommendations row is transitioned to state='alerted' and a
-history row is written via state_machine.record_alerted_transition().
+Formats Discord messages for clean and ugly candidates, enforces a
+configurable dedup window, POSTs to configured webhook URLs, and records
+every delivery attempt to alerts_sent. On a successful POST, the
+corresponding candidate_recommendations row is transitioned to
+state='alerted' and a history row is written via
+state_machine.record_alerted_transition().
+
+The alert format is mobile-first stacked plain text wrapped in a
+Discord embed for category visual identity (clean = green sidebar,
+ugly = amber). See format_stacked_messages for the exact layout.
 
 Public API:
-    load_alert_config()                         -> AlertConfig | None
-    format_table_messages(candidates, cat, ts)  -> list[str]  (compact table)
-    format_candidate_embed(candidate)           -> dict[str, Any]  (legacy)
+    load_alert_config(strategy)                        -> AlertConfig | None
+    format_stacked_messages(candidates, cat, when_utc) -> list[str]
+    build_embed_payload(body, category)                -> dict[str, Any]
     run_alerter(client, scan_run_id,
                 asset_id_map, selection_result,
-                config)                         -> int  (alerts sent)
+                config)                                -> int  (alerts sent)
 
 Environment variables (read by load_alert_config):
     DISCORD_WEBHOOK_CLEAN    Required. URL for the #clean-candidates channel.
@@ -22,8 +27,8 @@ Environment variables (read by load_alert_config):
 Deduplication:
     A 'new_candidate' alert is suppressed when alerts_sent already contains
     a row with delivery_status='sent' for the same asset_id within the last
-    dedup_window_hours (default: 8 h). This prevents re-alerting the same
-    coin across consecutive scans.
+    dedup_window_hours (default 8h; loaded from strategy_settings.scanner.
+    alert_dedup_hours when a StrategySettings is passed to load_alert_config).
 
 Webhook security:
     Actual webhook URLs are never stored in the database. Only a SHA-256
@@ -42,7 +47,7 @@ from typing import Any, cast
 import httpx
 from supabase import Client
 
-from scanner.models import ScoredCandidate, SelectionResult, TradeParameters
+from scanner.models import ScoredCandidate, SelectionResult
 from scanner.settings import StrategySettings
 from scanner.state_machine import record_alerted_transition
 
@@ -51,7 +56,10 @@ log = logging.getLogger(__name__)
 # ── Discord embed colours (decimal) ──────────────────────────────────────────
 _COLOR_CLEAN = 0x00C896  # teal-green — bullish confidence
 _COLOR_UGLY = 0xF59E0B  # amber      — speculative / higher risk
-_DISCORD_MAX_CHARS = 1900  # conservative limit; Discord hard cap is 2000
+# Per-message body cap. Lives inside an embed's `description` field
+# (Discord cap: 4096 chars). Kept well below to leave headroom for the
+# header line and any line-ending overhead.
+_DISCORD_MAX_CHARS = 3500
 
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -103,11 +111,25 @@ def load_alert_config(strategy: StrategySettings | None = None) -> AlertConfig |
     )
 
 
-# ── Compact table formatting ──────────────────────────────────────────────────
-
-#  Column widths (chars):  rank=2  symbol=8  entry=15  exit=12  stop=12  rr=5  size=7  score=5
-_TABLE_HEADER = " #  Symbol    Entry            Exit          Stop          R:R    Size     Score"
-_TABLE_SEP = " ── ────────  ───────────────  ────────────  ────────────  ─────  ───────  ─────"
+# ── Stacked alert formatting (mobile-first) ───────────────────────────────────
+#
+# Each candidate renders as a four-line block:
+#
+#   #1 INJ • Prob 77% • Size 2k-5k
+#   • Entry:  4.8883 (Max 4.9620)
+#   • Exit:   6.3487 (Profit +30%)
+#   • Stop:   4.3385 (Risk -11%)
+#
+# Title line: rank, ticker, probability, size bucket (separated by bullets).
+# Field lines: bullet-prefixed label-then-value pairs, with Profit and Risk
+# inline on the Exit and Stop lines. Profit and Risk percentages are derived
+# from preferred_entry / exit_price / stop_loss (geometry), not from
+# tp.expected_gain_pct.
+#
+# Blocks are separated by a blank line. The full body sits inside a Discord
+# embed (`description` field) so we get a category-colour sidebar without
+# forcing horizontal scrolling on mobile. No code-block table; no extra
+# bot/product signature.
 
 
 def _fmt_price(price: float) -> str:
@@ -129,65 +151,104 @@ def _fmt_price(price: float) -> str:
     return f"{price:.2e}"
 
 
-def _fmt_entry(tp: TradeParameters) -> str:
-    """Format entry zone as 'low–high' when both bounds are present."""
-    if tp.entry_price_low is not None and tp.entry_price_high is not None:
-        return f"{_fmt_price(tp.entry_price_low)}–{_fmt_price(tp.entry_price_high)}"
-    return _fmt_price(tp.entry_price)
+def _format_header(category: str, count: int, when_utc: datetime) -> str:
+    """Build the single-line alert header.
 
-
-def _table_row(rank: int, candidate: ScoredCandidate) -> str:
-    """Build one fixed-width table row for a candidate."""
-    tp = candidate.trade
-    score = candidate.score
-    symbol = candidate.symbol[:8].ljust(8)
-    entry = _fmt_entry(tp)[:15].ljust(15)
-    exit_ = _fmt_price(tp.exit_price)[:12].ljust(12)
-    stop = _fmt_price(tp.stop_loss)[:12].ljust(12)
-    rr = f"{tp.reward_risk_ratio:.1f}x"[:5].ljust(5)
-    size = tp.suggested_size_bucket[:7].ljust(7)
-    sc = f"{score.score_total:.1f}"[:5]
-    return f" {rank:<2} {symbol}  {entry}  {exit_}  {stop}  {rr}  {size}  {sc}"
-
-
-def format_table_messages(
-    candidates: list[ScoredCandidate],
-    category: str,
-    now_utc: str,
-) -> list[str]:
-    """Format candidates as compact monospace table message(s).
-
-    Builds one or more Discord plain-text messages (each under
-    _DISCORD_MAX_CHARS) containing a ```code-block``` table.
-    Splits by rows when the full table would exceed the limit.
-
-    Args:
-        candidates: Ordered list of non-deduped candidates to include.
-        category:   'clean' or 'ugly'.
-        now_utc:    ISO-8601 UTC string used in the footer line.
-
-    Returns:
-        List of message strings, each safe to POST to a Discord webhook.
+    Example: '🟡 Ugly Candidates — 4 (5/14/26, 3:15 AM)'
+    Timestamp is formatted in UTC; locale-style M/D/YY plus 12-hour clock.
     """
     is_clean = category == "clean"
     emoji = "🟢" if is_clean else "🟡"
     label = "Clean" if is_clean else "Ugly"
+    # %-prefixed format specifiers strip zero-padding from numeric fields
+    # so "05/14/26" renders as "5/14/26" — matching the locked design.
+    stamp = when_utc.strftime("%-m/%-d/%y, %-I:%M %p")
+    return f"{emoji} {label} Candidates — {count} ({stamp})"
+
+
+def _format_candidate_block(rank: int, candidate: ScoredCandidate) -> str:
+    """Build one four-line stacked block for a candidate.
+
+    Layout:
+        #R SYM • Prob P% • Size BUCKET
+        • Entry:  <preferred> (Max <max>)
+        • Exit:   <exit> (Profit +X%)
+        • Stop:   <stop> (Risk -X%)
+
+    Profit % and Risk % are derived from preferred_entry / exit_price /
+    stop_loss (geometry) so they cannot drift from the Entry/Exit/Stop
+    prices shown on the same line. tp.expected_gain_pct is intentionally
+    not read here.
+
+    Label-value alignment: labels are left-padded to 8 chars so every
+    value column starts at the same offset ("• Entry:  " = "• Exit:   "
+    = "• Stop:   " = 10 chars before the value).
+
+    Invariant: candidate.score.probability_pct must not be None for any
+    alerted candidate (clean/ugly always score >= 62 per the probability
+    map, so this is always set by the scorer). Violations fail loudly.
+    """
+    score = candidate.score
+    if score.probability_pct is None:
+        raise ValueError(
+            f"alerter: probability_pct is None for {candidate.symbol} "
+            f"({candidate.category} #{rank}) — clean/ugly candidates must "
+            "have a populated probability"
+        )
+
+    tp = candidate.trade
+    entry = tp.preferred_entry
+    profit_pct = round((tp.exit_price - entry) / entry * 100)
+    risk_pct = round((tp.stop_loss - entry) / entry * 100)
+
+    title = (
+        f"#{rank} {candidate.symbol} • "
+        f"Prob {round(score.probability_pct)}% • "
+        f"Size {tp.suggested_size_bucket}"
+    )
+    entry_line = f"• {'Entry:':<8}{_fmt_price(entry)} (Max {_fmt_price(tp.max_entry)})"
+    exit_line = f"• {'Exit:':<8}{_fmt_price(tp.exit_price)} (Profit +{profit_pct}%)"
+    stop_line = f"• {'Stop:':<8}{_fmt_price(tp.stop_loss)} (Risk {risk_pct}%)"
+    return "\n".join([title, entry_line, exit_line, stop_line])
+
+
+def format_stacked_messages(
+    candidates: list[ScoredCandidate],
+    category: str,
+    when_utc: datetime,
+) -> list[str]:
+    """Format candidates as one or more stacked-text message bodies.
+
+    Each returned string is the embed `description` body: a single-line
+    header followed by per-candidate stacked blocks separated by blank
+    lines. Splits between candidate blocks (never mid-block) when the
+    body would exceed _DISCORD_MAX_CHARS.
+
+    Args:
+        candidates: Non-deduped candidates to include, in rank order.
+        category:   'clean' or 'ugly'.
+        when_utc:   UTC datetime used in the header timestamp.
+
+    Returns:
+        List of body strings, each safe to embed in a Discord webhook POST.
+    """
+    blocks = [_format_candidate_block(i + 1, c) for i, c in enumerate(candidates)]
     n = len(candidates)
-    heading = f"{emoji} **{label} Candidates** — {n} setup{'s' if n != 1 else ''}"
-    footer = f"*{now_utc}*"
-    rows = [_table_row(i + 1, c) for i, c in enumerate(candidates)]
 
     def _build(subset: list[str]) -> str:
-        body = "\n".join([_TABLE_HEADER, _TABLE_SEP] + subset)
-        return f"{heading}\n```\n{body}\n```\n{footer}"
+        header = _format_header(category, n, when_utc)
+        return header + "\n\n" + "\n\n".join(subset)
+
+    if not blocks:
+        return []
 
     messages: list[str] = []
     chunk: list[str] = []
-    for row in rows:
-        candidate_chunk = chunk + [row]
+    for block in blocks:
+        candidate_chunk = chunk + [block]
         if len(_build(candidate_chunk)) > _DISCORD_MAX_CHARS and chunk:
             messages.append(_build(chunk))
-            chunk = [row]
+            chunk = [block]
         else:
             chunk = candidate_chunk
     if chunk:
@@ -195,82 +256,15 @@ def format_table_messages(
     return messages
 
 
-# ── Embed formatting (legacy) ────────────────────────────────────────────────────
+def build_embed_payload(body: str, category: str) -> dict[str, Any]:
+    """Wrap a rendered stacked body in a Discord embed payload.
 
-
-def format_candidate_embed(candidate: ScoredCandidate) -> dict[str, Any]:
-    """Build a Discord embed dict for one clean or ugly candidate.
-
-    Layout (mobile-friendly):
-        Title:       {emoji} {SYMBOL}  —  {Category} Candidate #{rank}
-        Description: compact indicator summary from trade.notes
-        6 inline fields: Entry Zone | Exit Target | Stop Loss
-                          R:R Ratio  | Size Bucket | Score
-        Footer + ISO timestamp
-
-    Args:
-        candidate: A ScoredCandidate from SelectionResult.
-
-    Returns:
-        A dict ready to be placed in a Discord "embeds" array.
+    The embed gives clean/ugly its colour sidebar (visual identity) while
+    keeping the body itself as plain stacked text for mobile readability.
+    No title or footer is set — the header line is part of the body.
     """
-    is_clean = candidate.category == "clean"
-    emoji = "🟢" if is_clean else "🟡"
-    cat_label = "Clean" if is_clean else "Ugly"
-    color = _COLOR_CLEAN if is_clean else _COLOR_UGLY
-
-    tp = candidate.trade
-    score = candidate.score
-    now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    stop_pct = abs((tp.stop_loss - tp.entry_price) / tp.entry_price * 100)
-
-    if tp.entry_price_low is not None and tp.entry_price_high is not None:
-        entry_zone_value = f"${tp.entry_price_low:,.4f} – ${tp.entry_price_high:,.4f}"
-    else:
-        entry_zone_value = f"${tp.entry_price:,.4f}"
-
-    fields: list[dict[str, Any]] = [
-        {
-            "name": "Entry Zone",
-            "value": entry_zone_value,
-            "inline": True,
-        },
-        {
-            "name": "Exit Target",
-            "value": f"${tp.exit_price:,.4f}  (+{tp.expected_gain_pct:.1f}%)",
-            "inline": True,
-        },
-        {
-            "name": "Stop Loss",
-            "value": f"${tp.stop_loss:,.4f}  (-{stop_pct:.1f}%)",
-            "inline": True,
-        },
-        {
-            "name": "R:R Ratio",
-            "value": f"{tp.reward_risk_ratio:.2f}×",
-            "inline": True,
-        },
-        {
-            "name": "Size Bucket",
-            "value": tp.suggested_size_bucket,
-            "inline": True,
-        },
-        {
-            "name": "Score",
-            "value": f"{score.score_total:.1f} / 100  (prob: {score.probability_pct:.0f}%)",
-            "inline": True,
-        },
-    ]
-
-    return {
-        "title": f"{emoji} {candidate.symbol}  —  {cat_label} Candidate #{candidate.rank}",
-        "description": tp.notes or "",
-        "color": color,
-        "fields": fields,
-        "footer": {"text": "Kraken Signal"},
-        "timestamp": now_utc,
-    }
+    color = _COLOR_CLEAN if category == "clean" else _COLOR_UGLY
+    return {"embeds": [{"description": body, "color": color}]}
 
 
 # ── Deduplication ─────────────────────────────────────────────────────────────
@@ -400,7 +394,7 @@ def run_alerter(
         channel: str,
         max_n: int,
     ) -> int:
-        now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        when_utc = datetime.now(UTC)
 
         to_alert: list[tuple[ScoredCandidate, str]] = []
         for candidate in candidates[:max_n]:
@@ -421,14 +415,18 @@ def run_alerter(
             return 0
 
         category = to_alert[0][0].category
-        messages = format_table_messages([c for c, _ in to_alert], category, now_utc)
-        shared_payload: dict[str, Any] = {"content": messages[0]}
+        bodies = format_stacked_messages([c for c, _ in to_alert], category, when_utc)
+        payloads = [build_embed_payload(body, category) for body in bodies]
+        # alerts_sent.payload captures the first message (representative of
+        # the batch). Splits are an implementation detail of Discord's
+        # length limits, not of the alert content.
+        shared_payload: dict[str, Any] = payloads[0]
 
         success = True
         err_msg: str | None = None
-        for msg in messages:
+        for payload in payloads:
             try:
-                _post_to_webhook(webhook_url, {"content": msg})
+                _post_to_webhook(webhook_url, payload)
             except Exception as exc:
                 success = False
                 err_msg = str(exc)
