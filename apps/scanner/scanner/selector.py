@@ -41,16 +41,19 @@ Exit price
         exit = max(rr_exit, tech_exit)
     Hard floor: exit ≥ entry × 1.05 (minimum 5 % target).
 
-Size bucket assignment (from migration 0012 sizing thresholds)
+Size bucket assignment (8-tier ladder)
     clean:
-        score ≥ 82 AND vol_7d ≥ $50 M → '20k+'
-        score ≥ 75 AND vol_7d ≥ $20 M → '10k-20k'
-        score ≥ 70 AND vol_7d ≥ $10 M → '5k-10k'
-        else                           → '2k-5k'
+        score ≥ 88 AND vol_7d ≥ $200 M → '100k+'
+        score ≥ 85 AND vol_7d ≥ $100 M → '50k-100k'
+        score ≥ 82 AND vol_7d ≥ $75 M  → '35k-50k'
+        score ≥ 80 AND vol_7d ≥ $50 M  → '20k-35k'
+        score ≥ 75 AND vol_7d ≥ $20 M  → '10k-20k'
+        score ≥ 70 AND vol_7d ≥ $10 M  → '5k-10k'
+        else                            → '2k-5k'
     ugly:
-        score ≥ 70 AND vol_7d ≥ $5 M  → '5k-10k'
-        score ≥ 65                     → '2k-5k'
-        else                           → '2k'
+        score ≥ 70 AND vol_7d ≥ $5 M   → '5k-10k'
+        score ≥ 65                      → '2k-5k'
+        else                            → '2k'
 
 Notes string (human-readable rationale for Discord / dashboard)
     "trend:<> | ema:<> | vwap:<> | rsi:<> | vol:<>x | ret7d:<>%"
@@ -170,17 +173,30 @@ def _assign_size_bucket(
     metrics: MarketMetrics,
     category: str,
 ) -> str:
-    """Assign a size bucket from migration 0012 sizing thresholds.
+    """Assign a size bucket from the 8-tier ladder.
 
     Returns a string matching the crecs_size_bucket_check DB constraint:
-        '2k' | '2k-5k' | '5k-10k' | '10k-20k' | '20k+'
+        '2k' | '2k-5k' | '5k-10k' | '10k-20k'
+        | '20k-35k' | '35k-50k' | '50k-100k' | '100k+'
+
+    Clean candidates can land in any of the 8 tiers; the upper tiers
+    (35k+ inclusive) require successively higher score AND 7d-avg
+    volume so only top-decile setups on the most liquid assets reach
+    them. Ugly candidates remain capped at '5k-10k' — sub-$5M-liquidity
+    assets do not warrant 5-figure-plus sizing.
     """
     s = score.score_total
     v7 = metrics.volume_7d_avg_usd or 0.0
 
     if category == "clean":
-        if s >= 82 and v7 >= 50_000_000:
-            return "20k+"
+        if s >= 88 and v7 >= 200_000_000:
+            return "100k+"
+        if s >= 85 and v7 >= 100_000_000:
+            return "50k-100k"
+        if s >= 82 and v7 >= 75_000_000:
+            return "35k-50k"
+        if s >= 80 and v7 >= 50_000_000:
+            return "20k-35k"
         if s >= 75 and v7 >= 20_000_000:
             return "10k-20k"
         if s >= 70 and v7 >= 10_000_000:

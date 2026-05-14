@@ -35,6 +35,7 @@ When a column or field changes, update every affected layer in the same PR.
 | 0016 | `candidate_recommendations` fix | Entry validity columns + check fix | 20260512000016 |
 | 0017 | `candidate_recommendations` extension | Entry engine columns (`setup_type`, `support_anchor_*`, etc.) | 20260512000017 |
 | 0018 | `candidate_scores` CHECK extension | Adds `'low_score'` to `cscores_category_check` for the watchlist-floor category | 20260514011523 |
+| 0019 | `candidate_recommendations` 8-tier size buckets | Extends `crecs_size_bucket_check` from 5 to 8 tiers; backfills old `'20k+'` rows to `'20k-35k'` | 20260514122521 |
 
 > RLS is currently **disabled** for the single-user MVP. Enable + add policies before multi-user.
 
@@ -82,7 +83,7 @@ Status values: `'running' | 'completed' | 'partial' | 'failed' | 'timed_out'` (a
 | `entry_price_low` / `entry_price_high` | same | `entry_price_low <= entry_price_high` (when both set) |
 | `exit_price` | `exit_price` | `exit_price > entry_price` |
 | `stop_loss` | `stop_loss` | `stop_loss < entry_price` |
-| `suggested_size_bucket` | `suggested_size_bucket` | `crecs_size_bucket_check`: one of `SIZE_BUCKETS` |
+| `suggested_size_bucket` | `suggested_size_bucket` | `crecs_size_bucket_check`: one of `SIZE_BUCKETS` (8-tier set, migration 0019) |
 | `expected_gain_pct` | `expected_gain_pct` | `NUMERIC(8,4)`; percent (10.0 = +10%) |
 | `reward_risk_ratio` | `reward_risk_ratio` | Pure ratio |
 | `setup_type` | `setup_type` | `'pullback' \| 'breakout_trigger' \| 'reclaim'` (migration 0017) |

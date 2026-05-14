@@ -24,6 +24,7 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ### Added
 
+- **PR 23 — 8-tier size buckets.** The `SIZE_BUCKETS` set expands from 5 to 8 tiers: `2k | 2k-5k | 5k-10k | 10k-20k | 20k-35k | 35k-50k | 50k-100k | 100k+`. The new upper tiers give clean candidates finer granularity above $20k (was a single `20k+` bucket). Ugly category is unchanged (still capped at `5k-10k`). Mirrored across Python `models.SIZE_BUCKETS`, SQL `crecs_size_bucket_check`, and TS `SizeBucket` / `SIZE_BUCKETS`.
 - **PR 20 — Canonical candidate-count contract.** `upsert_candidate_recommendations` now returns `(clean_count, ugly_count)` derived from the rows actually built and upserted. `persist_run` returns a new `PersistResult` dataclass carrying `asset_id_map`, `candidates_clean`, and `candidates_ugly`. `main.py` uses these counts for `complete_scan_run` and `scan_summary.json` instead of `len(selection_result.clean/.ugly)`. Counts cannot drift from persisted rows.
 - **PR 20 — Dashboard "No candidates produced" banner.** `apps/web/app/(app)/page.tsx` shows an inline banner when the most recent finalised run produced zero clean and zero ugly candidates, disambiguating the previous "—"-vs-"0" presentation. Only shown for runs with `status !== 'running'`.
 - **PR 2 — Entry-engine rejection audit trail.** Candidates dropped by the entry-engine validity gates (over-chased breakout, pullback/reclaim max-entry above current price, missing 20-day-high data, no qualifying reclaim anchor) are now recorded to `asset_state_history` with `to_state='entry_rejected'`. Previously these were logged-and-dropped with no auditable record.
@@ -34,12 +35,14 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ### Changed
 
+- **PR 23** — `_assign_size_bucket()` thresholds extended: clean candidates can now reach `20k-35k` (score ≥ 80, v7 ≥ $50M), `35k-50k` (≥ 82, ≥ $75M), `50k-100k` (≥ 85, ≥ $100M), and `100k+` (≥ 88, ≥ $200M). Existing 5-tier ladder for `5k-10k`, `10k-20k`, `2k-5k` is unchanged. Ugly ladder is unchanged.
 - **PR 20** — `upsert_candidate_recommendations` return type: `int` → `tuple[int, int]`. `persist_run` return type: `dict[str, str]` → `PersistResult`.
 - **PR 2** — `_assign_category()` returns `'low_score'` for scores below the watchlist floor instead of returning `'watchlist'` as a catch-all default. `ScoringResult` gains a `low_score` property mirroring `watchlist`.
 - **PR 2** — `state_machine._build_transition_rows()` emits rows for the new `low_score` and `entry_rejected` states. Module docstring updated.
 
 ### Schema
 
+- **PR 23** — Migration `20260514122521_extend_size_buckets_8_tiers.sql` drops `crecs_size_bucket_check`, backfills existing rows holding `'20k+'` to `'20k-35k'` (conservative — maps old "smallest above-20k" tier to new "smallest above-20k" tier), and recreates the constraint with the 8-tier value set only. Lossy for distinguishing old `20k+` rows from the new finer-grained tiers; pre-existing 5-tier `'20k+'` rows remain mapped to `'20k-35k'` after migration.
 - **PR 2** — Migration `20260514011523_extend_cscores_category_check.sql` drops and recreates `cscores_category_check` to permit `'low_score'`.
 
 ### Fixed
@@ -49,12 +52,14 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ### Tests
 
+- PR 23 adds 7 net new unit tests: 4 new tier tests (`100k+`, `50k-100k`, `35k-50k`, `20k-35k`), 2 boundary tests (high-score / low-volume falls to `20k-35k`; high-volume / low-score falls to `10k-20k`), 1 ugly-category cap test, and 1 SIZE_BUCKETS-membership sweep. Removed the old `20k+` test (no longer a valid tier).
 - PR 20 adds 4 unit tests (3 persister, 1 selector regression guard against clean/ugly symbol overlap).
 - PR 2 added 24 unit tests across state machine, scoring boundary, selector validity gates, entry-engine typed errors, and parametrised invariant-table coverage.
-- Total unit tests: 362 (was 334 at baseline).
+- Total unit tests: 369 (was 334 at baseline).
 
 ### Docs
 
+- **PR 23** — `docs/entry-engine.md` Size Buckets table updated to the 8-tier ladder. `docs/data-model.md` migrations table gains the 0019 row.
 - **PR 20** — `docs/data-model.md` gains a "Candidate Counts — Canonical Definition" section pinning the single source of truth. `docs/architecture.md` Observability section now links to it.
 
 ### Known Issues

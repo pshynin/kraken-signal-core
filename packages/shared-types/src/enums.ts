@@ -61,14 +61,27 @@ export type Category =
 export type RecommendationCategory = "clean" | "ugly";
 
 // ── Suggested trade size buckets ──────────────────────────────────────────────
-export type SizeBucket = "2k" | "2k-5k" | "5k-10k" | "10k-20k" | "20k+";
+// Must stay in sync with apps/scanner/scanner/models.py::SIZE_BUCKETS and the
+// crecs_size_bucket_check CHECK constraint in supabase/migrations/.
+export type SizeBucket =
+  | "2k"
+  | "2k-5k"
+  | "5k-10k"
+  | "10k-20k"
+  | "20k-35k"
+  | "35k-50k"
+  | "50k-100k"
+  | "100k+";
 
 export const SIZE_BUCKETS: SizeBucket[] = [
   "2k",
   "2k-5k",
   "5k-10k",
   "10k-20k",
-  "20k+",
+  "20k-35k",
+  "35k-50k",
+  "50k-100k",
+  "100k+",
 ];
 
 // ── Multi-timeframe analysis ───────────────────────────────────────────────────
