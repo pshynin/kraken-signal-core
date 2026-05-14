@@ -24,34 +24,43 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ### Added
 
-- **Entry-engine rejection audit trail.** Candidates dropped by the entry-engine validity gates (over-chased breakout, pullback/reclaim max-entry above current price, missing 20-day-high data, no qualifying reclaim anchor) are now recorded to `asset_state_history` with `to_state='entry_rejected'`. Previously these were logged-and-dropped with no auditable record.
-- **`low_score` category.** Scores below `watchlist_min_score` (default 55) get a distinct `low_score` category instead of silently falling through to `watchlist`. Distinct from `excluded`, which remains reserved for hard-filter failures. Mirrored across Python (`models.py`), SQL (`candidate_scores.category` CHECK), and TS (`Category`, `AssetState` types).
-- **Shared rejection-reason constants** in `apps/scanner/scanner/rejection_reasons.py`. Single source of truth for both the raise site (`entry_engine.py`) and the audit writer (`state_machine.py`).
-- **`EntryEngineError(ValueError)`** typed exception carrying a `.reason` attribute. The selector narrows its `except` to this class so genuine bugs are not silently swallowed.
-- **`EntryRejection` dataclass** and **`SelectionResult.rejected`** field. Mirrored in TS as `EntryRejection` interface plus `ScanOutput.entry_rejected`.
+- **PR 20 — Canonical candidate-count contract.** `upsert_candidate_recommendations` now returns `(clean_count, ugly_count)` derived from the rows actually built and upserted. `persist_run` returns a new `PersistResult` dataclass carrying `asset_id_map`, `candidates_clean`, and `candidates_ugly`. `main.py` uses these counts for `complete_scan_run` and `scan_summary.json` instead of `len(selection_result.clean/.ugly)`. Counts cannot drift from persisted rows.
+- **PR 20 — Dashboard "No candidates produced" banner.** `apps/web/app/(app)/page.tsx` shows an inline banner when the most recent finalised run produced zero clean and zero ugly candidates, disambiguating the previous "—"-vs-"0" presentation. Only shown for runs with `status !== 'running'`.
+- **PR 2 — Entry-engine rejection audit trail.** Candidates dropped by the entry-engine validity gates (over-chased breakout, pullback/reclaim max-entry above current price, missing 20-day-high data, no qualifying reclaim anchor) are now recorded to `asset_state_history` with `to_state='entry_rejected'`. Previously these were logged-and-dropped with no auditable record.
+- **PR 2 — `low_score` category.** Scores below `watchlist_min_score` (default 55) get a distinct `low_score` category instead of silently falling through to `watchlist`. Distinct from `excluded`, which remains reserved for hard-filter failures. Mirrored across Python (`models.py`), SQL (`candidate_scores.category` CHECK), and TS (`Category`, `AssetState` types).
+- **PR 2 — Shared rejection-reason constants** in `apps/scanner/scanner/rejection_reasons.py`. Single source of truth for both the raise site (`entry_engine.py`) and the audit writer (`state_machine.py`).
+- **PR 2 — `EntryEngineError(ValueError)`** typed exception carrying a `.reason` attribute. The selector narrows its `except` to this class so genuine bugs are not silently swallowed.
+- **PR 2 — `EntryRejection` dataclass** and **`SelectionResult.rejected`** field. Mirrored in TS as `EntryRejection` interface plus `ScanOutput.entry_rejected`.
 
 ### Changed
 
-- `_assign_category()` now returns `'low_score'` for scores below the watchlist floor instead of returning `'watchlist'` as a catch-all default. `ScoringResult` gains a `low_score` property mirroring `watchlist`.
-- `state_machine._build_transition_rows()` emits rows for the new `low_score` and `entry_rejected` states. Module docstring updated.
+- **PR 20** — `upsert_candidate_recommendations` return type: `int` → `tuple[int, int]`. `persist_run` return type: `dict[str, str]` → `PersistResult`.
+- **PR 2** — `_assign_category()` returns `'low_score'` for scores below the watchlist floor instead of returning `'watchlist'` as a catch-all default. `ScoringResult` gains a `low_score` property mirroring `watchlist`.
+- **PR 2** — `state_machine._build_transition_rows()` emits rows for the new `low_score` and `entry_rejected` states. Module docstring updated.
 
 ### Schema
 
-- Migration **`20260514011523_extend_cscores_category_check.sql`** drops and recreates `cscores_category_check` to permit `'low_score'`. Required because `candidate_scores.category` had a CHECK constraint that the new value would otherwise violate.
+- **PR 2** — Migration `20260514011523_extend_cscores_category_check.sql` drops and recreates `cscores_category_check` to permit `'low_score'`.
 
 ### Fixed
 
-- `scanner_alert_dedup_hours` from `strategy_settings` now reaches `AlertConfig`. `load_alert_config()` accepts an optional `StrategySettings`; when provided, its `scanner_alert_dedup_hours` overrides the `AlertConfig` 8h default. Webhook URLs continue to come from environment variables only.
-- Closed known gap #5 (`watchlist_min_score` was informational only). Removed from `docs/roadmap.md` known-gaps list.
+- **PR 1** — `scanner_alert_dedup_hours` from `strategy_settings` now reaches `AlertConfig`. `load_alert_config()` accepts an optional `StrategySettings`; when provided, its `scanner_alert_dedup_hours` overrides the `AlertConfig` 8h default. Webhook URLs continue to come from environment variables only.
+- **PR 2** — Closed known gap #5 (`watchlist_min_score` was informational only). Removed from `docs/roadmap.md` known-gaps list.
 
 ### Tests
 
-- 24 new tests added (state machine, scoring boundary, selector validity gates, entry-engine typed errors, parametrised invariant-table coverage). Total unit tests: 358.
+- PR 20 adds 4 unit tests (3 persister, 1 selector regression guard against clean/ugly symbol overlap).
+- PR 2 added 24 unit tests across state machine, scoring boundary, selector validity gates, entry-engine typed errors, and parametrised invariant-table coverage.
+- Total unit tests: 362 (was 334 at baseline).
+
+### Docs
+
+- **PR 20** — `docs/data-model.md` gains a "Candidate Counts — Canonical Definition" section pinning the single source of truth. `docs/architecture.md` Observability section now links to it.
 
 ### Known Issues
 
 - `to_state` still has no DB-level CHECK constraint — the new `entry_rejected` and `low_score` values are enforced only by convention. A future migration will close this (carried as gap #3 in `docs/roadmap.md`).
-- `ScanStatus` TS type in `packages/shared-types/src/enums.ts` is missing `'timed_out'` (added in migration 0015); pre-existing drift, not from this change.
+- `ScanStatus` TS type in `packages/shared-types/src/enums.ts` is missing `'timed_out'` (added in migration 0015); pre-existing drift, not from these changes.
 
 ---
 

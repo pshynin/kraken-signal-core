@@ -227,6 +227,8 @@ def main(dry_run: bool = False) -> int:
 
     # ── Stage 7: Run persister (DB writes + state machine) ───────────────────
     asset_id_map: dict[str, str] = {}
+    candidates_clean_persisted = 0
+    candidates_ugly_persisted = 0
     _persist_ok = False
 
     if _do_db and db_client and scan_run_id:
@@ -234,13 +236,16 @@ def main(dry_run: bool = False) -> int:
 
         log.info("Stage 7 — persisting run data to Supabase")
         try:
-            asset_id_map = persist_run(
+            persist_result = persist_run(
                 db_client,
                 scan_run_id,
                 filter_result=filter_result,
                 scoring_result=scoring_result,
                 selection_result=selection_result,
             )
+            asset_id_map = persist_result.asset_id_map
+            candidates_clean_persisted = persist_result.candidates_clean
+            candidates_ugly_persisted = persist_result.candidates_ugly
             _persist_ok = True
             log.info("Stage 7 complete — all tables written")
         except Exception as exc:
@@ -292,12 +297,16 @@ def main(dry_run: bool = False) -> int:
             status=status,
             assets_scanned=fetch_result.total_count,
             assets_passed_filter=filter_result.passed_count,
-            candidates_clean=len(selection_result.clean),
-            candidates_ugly=len(selection_result.ugly),
+            candidates_clean=candidates_clean_persisted,
+            candidates_ugly=candidates_ugly_persisted,
             alerts_sent=alerts_sent_count,
         )
 
     # ── Write GHA step summary file ───────────────────────────────────────────
+    # On dry-run / skipped persist, fall back to in-memory selection_result
+    # counts so the summary still reports something meaningful.
+    summary_clean = candidates_clean_persisted if _persist_ok else len(selection_result.clean)
+    summary_ugly = candidates_ugly_persisted if _persist_ok else len(selection_result.ugly)
     _write_summary(
         "scan_summary.json",
         {
@@ -305,8 +314,8 @@ def main(dry_run: bool = False) -> int:
             "dry_run": dry_run,
             "assets_scanned": fetch_result.total_count,
             "assets_passed_filter": filter_result.passed_count,
-            "candidates_clean": len(selection_result.clean),
-            "candidates_ugly": len(selection_result.ugly),
+            "candidates_clean": summary_clean,
+            "candidates_ugly": summary_ugly,
             "alerts_sent": alerts_sent_count,
             "scan_run_id": scan_run_id or "dry-run",
         },

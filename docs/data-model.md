@@ -115,6 +115,19 @@ These are enforced at the database level and must not be bypassed:
 - `asset_state_history.asset_id` → `assets.id ON DELETE RESTRICT` (prevents accidental cascade deletes losing audit trail).
 - `asset_state_history.scan_run_id` → `scan_runs.id ON DELETE SET NULL` (history survives run pruning).
 
+## Candidate Counts — Canonical Definition
+
+"How many candidates did this scan produce?" has exactly one answer per category: **the number of rows in `candidate_recommendations` for that `scan_run_id` with the matching `category`.** Rejected (`entry_rejected`), low-score, watchlist, and excluded assets are not candidates.
+
+To keep this answer consistent across surfaces:
+
+- `apps/scanner/scanner/persister.py::upsert_candidate_recommendations` returns `(clean_count, ugly_count)` derived from the rows actually built and upserted (skipped rows are not counted).
+- `persist_run` packages those counts into a `PersistResult` returned to `main.py`.
+- `main.py` passes `PersistResult.candidates_clean` / `.candidates_ugly` to `complete_scan_run` and into `scan_summary.json`. **It does not use `len(selection_result.clean/.ugly)`** — that count could in principle drift from the persisted rows if a future skip path is added.
+- The Next.js dashboard reads `scan_runs.candidates_clean` / `candidates_ugly` directly. Other dashboard counts (the `/candidates` table) come from `fetchActiveCandidates()` filtered to `state IN ACTIVE_STATES`, which is the same underlying table.
+
+A future code change that introduces a new "candidate-like" state (e.g. paper-traded, archived) must update this section and decide whether the new state contributes to the canonical count or not.
+
 ## Adding a New Field — Checklist
 
 1. Write a new migration in `supabase/migrations/` with a timestamp newer than the latest one.
