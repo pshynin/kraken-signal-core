@@ -110,6 +110,11 @@ Indexes:
 - `idx_state_hist_run (scan_run_id)`
 - `idx_state_hist_to_state (to_state)`
 
+### Where to view this in the dashboard
+
+- **Per-run breakdown** — `/scans/[id]` shows hard-filter exclusion counts (by reason), entry-engine rejections (per symbol with setup + reason), and below-threshold totals (watchlist + low_score). All derived from `asset_state_history` rows for that `scan_run_id`.
+- **Per-asset timeline** — `/assets/[symbol]` shows the full transition history for one asset, newest first, capped at 100 rows. Symbol cells in the candidates / scan-detail / alerts tables link here.
+
 ## Foreign-Key Behaviour
 
 - `asset_id` → `assets.id ON DELETE RESTRICT` — you cannot delete an asset that has history. Keeps the audit trail intact.

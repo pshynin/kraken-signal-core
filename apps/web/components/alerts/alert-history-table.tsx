@@ -84,7 +84,12 @@ export function AlertHistoryTable({ rows }: Props) {
                 </div>
               </td>
               <td className="px-4 py-3 font-mono font-medium text-foreground">
-                {row.symbol}
+                <Link
+                  href={`/assets/${encodeURIComponent(row.symbol)}`}
+                  className="hover:underline"
+                >
+                  {row.symbol}
+                </Link>
               </td>
               <td className="px-4 py-3">
                 <Badge

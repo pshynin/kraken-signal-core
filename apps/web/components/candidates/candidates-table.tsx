@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronUp, ChevronsUpDown, ListX } from "lucide-react";
 
 import type { CandidateTableRow, RecommendationCategory } from "@kraken-signal/shared-types";
@@ -242,9 +243,12 @@ export function CandidatesTable({
 
                   {/* Symbol */}
                   <Td>
-                    <span className="font-mono font-semibold text-foreground tracking-tight">
+                    <Link
+                      href={`/assets/${encodeURIComponent(row.symbol)}`}
+                      className="font-mono font-semibold text-foreground tracking-tight hover:underline"
+                    >
                       {row.symbol}
-                    </span>
+                    </Link>
                     {row.notes && (
                       <p className="mt-0.5 text-[10px] text-muted-foreground truncate max-w-[140px]">
                         {row.notes}
