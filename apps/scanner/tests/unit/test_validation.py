@@ -1,19 +1,28 @@
-"""Unit tests for scanner.validation — trade outcome computation (PR H2).
+"""Unit tests for scanner.validation (PR H2 + PR I).
 
-The pure core (compute_outcome) is tested exhaustively with synthetic
-forward price paths. No DB, no network.
+PR H2: the pure core (compute_outcome) tested with synthetic price paths.
+PR I:  aggregation/formatting (pure), the two DB fetchers (mocked
+       Supabase client), and a CLI smoke test over a fixture dataset.
+No real DB, no network anywhere.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 from scanner.validation import (
     Fidelity,
     ForwardCandle,
     OutcomeKind,
+    TradeOutcome,
     TradeSpec,
+    aggregate_outcomes,
     compute_outcome,
+    fetch_forward_path,
+    fetch_trade_specs,
+    format_report,
+    run_report,
 )
 
 _SCAN_TIME = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
@@ -27,6 +36,7 @@ def _spec(
 ) -> TradeSpec:
     return TradeSpec(
         symbol="BTC",
+        asset_id="asset-btc",
         scan_run_id="run-1",
         category="clean",
         setup_type="pullback",
@@ -197,3 +207,287 @@ def test_compute_outcome_is_deterministic() -> None:
     a = compute_outcome(_spec(), path, Fidelity.EXACT)
     b = compute_outcome(_spec(), path, Fidelity.EXACT)
     assert a == b
+
+
+# ── PR I: aggregation (pure) ──────────────────────────────────────────────────
+
+
+def _outcome(
+    *,
+    kind: OutcomeKind,
+    fidelity: Fidelity = Fidelity.EXACT,
+    setup: str | None = "pullback",
+    category: str = "clean",
+    size: str = "5k-10k",
+    prob: float | None = 77.0,
+    filled: bool = True,
+    ret: float | None = 0.1,
+    mae: float | None = -0.05,
+    mfe: float | None = 0.2,
+) -> TradeOutcome:
+    return TradeOutcome(
+        symbol="X",
+        scan_run_id="r",
+        category=category,
+        setup_type=setup,
+        size_bucket=size,
+        probability_pct=prob,
+        kind=kind,
+        fidelity=fidelity,
+        filled=filled,
+        fill_time=None,
+        exit_time=None,
+        days_to_fill=None,
+        days_to_exit=None,
+        realized_return=ret,
+        mae=mae,
+        mfe=mfe,
+    )
+
+
+def test_aggregate_splits_by_fidelity_exact_first() -> None:
+    outs = [
+        _outcome(kind=OutcomeKind.TARGET_HIT, fidelity=Fidelity.CLOSE_APPROX),
+        _outcome(kind=OutcomeKind.STOP_HIT, fidelity=Fidelity.EXACT),
+    ]
+    reps = aggregate_outcomes(outs)
+    assert [r.fidelity for r in reps] == [Fidelity.EXACT, Fidelity.CLOSE_APPROX]
+
+
+def test_aggregate_skips_empty_fidelity_cohort() -> None:
+    outs = [_outcome(kind=OutcomeKind.TARGET_HIT, fidelity=Fidelity.EXACT)]
+    reps = aggregate_outcomes(outs)
+    assert len(reps) == 1
+    assert reps[0].fidelity is Fidelity.EXACT
+
+
+def test_cohort_rates_are_over_filled_not_total() -> None:
+    # 4 trades: 1 no_fill, 2 target, 1 stop. fill_rate = 3/4.
+    # target_rate/stop_rate are over the 3 filled, not 4.
+    outs = [
+        _outcome(kind=OutcomeKind.NO_FILL, filled=False, ret=None, mae=None, mfe=None),
+        _outcome(kind=OutcomeKind.TARGET_HIT),
+        _outcome(kind=OutcomeKind.TARGET_HIT),
+        _outcome(kind=OutcomeKind.STOP_HIT),
+    ]
+    rep = aggregate_outcomes(outs)[0]
+    assert rep.overall.n == 4
+    assert rep.overall.n_filled == 3
+    assert rep.overall.fill_rate == 0.75
+    assert rep.overall.target_rate == round(2 / 3, 6)
+    assert rep.overall.stop_rate == round(1 / 3, 6)
+
+
+def test_cohort_rates_zero_when_no_fills() -> None:
+    outs = [_outcome(kind=OutcomeKind.NO_FILL, filled=False, ret=None, mae=None, mfe=None)]
+    rep = aggregate_outcomes(outs)[0]
+    assert rep.overall.fill_rate == 0.0
+    assert rep.overall.target_rate == 0.0
+    assert rep.overall.avg_realized_return is None
+
+
+def test_breakdown_dimensions_present_and_sorted() -> None:
+    outs = [
+        _outcome(kind=OutcomeKind.TARGET_HIT, setup="pullback", category="clean"),
+        _outcome(kind=OutcomeKind.STOP_HIT, setup="breakout_trigger", category="ugly"),
+    ]
+    rep = aggregate_outcomes(outs)[0]
+    setups = [c.label for c in rep.by_setup]
+    assert setups == sorted(setups)
+    assert set(setups) == {"pullback", "breakout_trigger"}
+    assert {c.label for c in rep.by_category} == {"clean", "ugly"}
+
+
+def test_breakdown_handles_null_setup_type() -> None:
+    outs = [_outcome(kind=OutcomeKind.TARGET_HIT, setup=None)]
+    rep = aggregate_outcomes(outs)[0]
+    assert any(c.label == "unknown" for c in rep.by_setup)
+
+
+def test_prob_tier_bucketing() -> None:
+    outs = [
+        _outcome(kind=OutcomeKind.TARGET_HIT, prob=92.0),
+        _outcome(kind=OutcomeKind.TARGET_HIT, prob=77.0),
+        _outcome(kind=OutcomeKind.TARGET_HIT, prob=None),
+    ]
+    rep = aggregate_outcomes(outs)[0]
+    tiers = {c.label for c in rep.by_prob_tier}
+    assert ">=90" in tiers
+    assert "77-83" in tiers
+    assert "none" in tiers
+
+
+# ── PR I: report formatting (pure) ────────────────────────────────────────────
+
+
+def test_format_report_empty() -> None:
+    assert "No trade outcomes" in format_report([])
+
+
+def test_format_report_has_both_fidelity_sections() -> None:
+    outs = [
+        _outcome(kind=OutcomeKind.TARGET_HIT, fidelity=Fidelity.EXACT),
+        _outcome(kind=OutcomeKind.STOP_HIT, fidelity=Fidelity.CLOSE_APPROX),
+    ]
+    text = format_report(aggregate_outcomes(outs))
+    assert "Fidelity: EXACT" in text
+    assert "Fidelity: CLOSE_APPROX" in text
+    # The approx section carries the lower-bound caveat.
+    assert "lower bound" in text
+
+
+def test_format_report_includes_breakdown_titles() -> None:
+    outs = [_outcome(kind=OutcomeKind.TARGET_HIT)]
+    text = format_report(aggregate_outcomes(outs))
+    for title in (
+        "Overall",
+        "By setup type",
+        "By category",
+        "By size bucket",
+        "By probability tier",
+    ):
+        assert title in text
+
+
+# ── PR I: DB fetchers (mocked Supabase client) ────────────────────────────────
+
+
+def _spec_row(**over: object) -> dict:
+    base = {
+        "category": "clean",
+        "setup_type": "pullback",
+        "preferred_entry": 100.0,
+        "max_entry": 102.0,
+        "entry_price": 100.0,
+        "exit_price": 130.0,
+        "stop_loss": 90.0,
+        "probability_pct": 77.0,
+        "suggested_size_bucket": "5k-10k",
+        "scan_run_id": "run-1",
+        "asset_id": "asset-btc",
+        "assets": {"symbol": "BTC"},
+        "scan_runs": {"started_at": "2026-01-01T00:00:00+00:00"},
+    }
+    base.update(over)
+    return base
+
+
+def test_fetch_trade_specs_maps_row_to_spec() -> None:
+    client = MagicMock()
+    resp = MagicMock()
+    resp.data = [_spec_row()]
+    client.table.return_value.select.return_value.execute.return_value = resp
+
+    specs = fetch_trade_specs(client)
+    assert len(specs) == 1
+    s = specs[0]
+    assert s.symbol == "BTC"
+    assert s.asset_id == "asset-btc"
+    assert s.setup_type == "pullback"
+    assert s.preferred_entry == 100.0
+    assert s.max_entry == 102.0
+
+
+def test_fetch_trade_specs_falls_back_to_entry_price() -> None:
+    client = MagicMock()
+    resp = MagicMock()
+    # Older row: no preferred_entry / max_entry columns populated.
+    resp.data = [_spec_row(preferred_entry=None, max_entry=None, entry_price=55.0)]
+    client.table.return_value.select.return_value.execute.return_value = resp
+
+    s = fetch_trade_specs(client)[0]
+    assert s.preferred_entry == 55.0
+    assert s.max_entry == 55.0
+
+
+def test_fetch_trade_specs_since_filter() -> None:
+    client = MagicMock()
+    resp = MagicMock()
+    resp.data = [
+        _spec_row(scan_runs={"started_at": "2026-01-01T00:00:00+00:00"}),
+        _spec_row(scan_runs={"started_at": "2026-03-01T00:00:00+00:00"}),
+    ]
+    client.table.return_value.select.return_value.execute.return_value = resp
+
+    specs = fetch_trade_specs(client, since=datetime(2026, 2, 1, tzinfo=UTC))
+    assert len(specs) == 1
+    assert specs[0].scan_time == datetime(2026, 3, 1, tzinfo=UTC)
+
+
+def _ohlcv_chain(client: MagicMock, rows: list[dict]) -> None:
+    """Wire client.table('ohlcv_candles').select()...execute() -> rows."""
+    resp = MagicMock()
+    resp.data = rows
+    (
+        client.table.return_value.select.return_value.eq.return_value.eq.return_value.gte.return_value.lte.return_value.order.return_value.execute.return_value
+    ) = resp
+
+
+def test_fetch_forward_path_exact_when_ohlcv_covers_horizon() -> None:
+    client = MagicMock()
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    # Last candle within 4h of horizon end (start + 10d) -> EXACT.
+    rows = [
+        {
+            "candle_timestamp": "2026-01-01T00:00:00+00:00",
+            "high": 101,
+            "low": 99,
+            "close": 100,
+        },
+        {
+            "candle_timestamp": "2026-01-10T22:00:00+00:00",
+            "high": 110,
+            "low": 105,
+            "close": 108,
+        },
+    ]
+    _ohlcv_chain(client, rows)
+    candles, fidelity = fetch_forward_path(client, "BTC", "asset-btc", start)
+    assert fidelity is Fidelity.EXACT
+    assert len(candles) == 2
+
+
+def test_fetch_forward_path_falls_back_to_market_snapshots() -> None:
+    client = MagicMock()
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    _ohlcv_chain(client, [])  # no ohlcv coverage
+
+    ms_resp = MagicMock()
+    ms_resp.data = [{"snapshot_time": "2026-01-02T00:00:00+00:00", "price_usd": 100.0}]
+    (
+        client.table.return_value.select.return_value.eq.return_value.gte.return_value.lte.return_value.order.return_value.execute.return_value
+    ) = ms_resp
+
+    candles, fidelity = fetch_forward_path(client, "BTC", "asset-btc", start)
+    assert fidelity is Fidelity.CLOSE_APPROX
+    assert len(candles) == 1
+    # market_snapshots path: high == low == close.
+    assert candles[0].high == candles[0].low == candles[0].close == 100.0
+
+
+# ── PR I: CLI smoke (run_report end to end over a mocked client) ──────────────
+
+
+def test_run_report_end_to_end_smoke() -> None:
+    """run_report wires fetch_trade_specs + fetch_forward_path +
+    compute_outcome + aggregate + format. One TARGET_HIT trade with exact
+    OHLCV coverage should surface in an EXACT section."""
+    client = MagicMock()
+
+    specs_resp = MagicMock()
+    specs_resp.data = [_spec_row()]
+    client.table.return_value.select.return_value.execute.return_value = specs_resp
+
+    # ohlcv covering the horizon, price runs from entry up through target.
+    ohlcv = [
+        {"candle_timestamp": "2026-01-01T00:00:00+00:00", "high": 101, "low": 99, "close": 100},
+        {"candle_timestamp": "2026-01-03T00:00:00+00:00", "high": 135, "low": 100, "close": 132},
+        {"candle_timestamp": "2026-01-10T22:00:00+00:00", "high": 133, "low": 128, "close": 130},
+    ]
+    _ohlcv_chain(client, ohlcv)
+
+    text = run_report(client)
+    assert "Fidelity: EXACT" in text
+    assert "Overall" in text
+    # One filled target-hit trade -> fill 100%, and a positive avg return.
+    assert "fill=100%" in text

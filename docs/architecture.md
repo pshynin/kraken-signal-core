@@ -122,8 +122,9 @@ The only client-side data fetching is the settings form (`components/settings/se
 
 - **Pure core** (`compute_outcome`) — deterministic, no DB, no clock. Takes a `TradeSpec` + a forward `list[ForwardCandle]` + a `Fidelity` and returns a `TradeOutcome` (filled / target_hit / stop_hit / expired_open, plus MAE/MFE and realized return). Fully unit-tested with synthetic price paths.
 - **Thin DB layer** — `fetch_trade_specs` reads recommendations; `fetch_forward_path` assembles the price path, preferring `ohlcv_candles` (real high/low) and falling back to `market_snapshots` 6h closes for windows predating OHLCV persistence.
-- **Fidelity is per-trade**: `EXACT` only when `ohlcv_candles` cover the whole 10-day horizon; otherwise `CLOSE_APPROX` (lowest available across the horizon). PR I (CLI report) aggregates these and reports cohorts separately so mixed-fidelity numbers are never silently blended.
+- **Fidelity is per-trade**: `EXACT` only when `ohlcv_candles` cover the whole 10-day horizon; otherwise `CLOSE_APPROX` (lowest available across the horizon). The CLI report aggregates these and presents the two fidelity cohorts in **separate sections** so mixed-fidelity numbers are never silently blended.
 - Locked semantics: fill = price enters `[preferred_entry, max_entry]`; horizon = 10 days; stop-first on same-candle stop/target ambiguity (pessimistic); MAE/MFE measured from the fill price.
+- **CLI** (on-demand, no persisted `trade_outcomes` table): `python -m scanner.validation report [--since YYYY-MM-DD]`. Output leads with an overall summary line per fidelity cohort, then breakdowns by setup type, category, size bucket, and probability tier. `CLOSE_APPROX` sections carry an explicit "fill rate is a lower bound, MAE/MFE understate true excursion" caveat. Until `ohlcv_candles` accrues ≥10 days of forward data, expect mostly/only the `CLOSE_APPROX` cohort.
 
 ## What Lives Where and Why
 
