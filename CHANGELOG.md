@@ -49,6 +49,7 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ### Schema
 
+- **Hardening B** — Migration `20260516100203_check_asset_state_history_to_state.sql` adds `ash_to_state_check`, a CHECK pinning `asset_state_history.to_state` to the 7 values the scanner writes (`candidate_clean`, `candidate_ugly`, `watchlist`, `low_score`, `entry_rejected`, `excluded`, `alerted`). Plain `ADD CONSTRAINT` (not `NOT VALID`): Postgres validates existing rows at migration time, so a legacy out-of-set value fails the migration loudly — the intended signal for this single-DB project. **Not locally verified** (no local Supabase); run `SELECT DISTINCT to_state FROM asset_state_history;` before applying to prod.
 - **PR 23** — Migration `20260514122521_extend_size_buckets_8_tiers.sql` drops `crecs_size_bucket_check`, backfills existing rows holding `'20k+'` to `'20k-35k'` (conservative — maps old "smallest above-20k" tier to new "smallest above-20k" tier), and recreates the constraint with the 8-tier value set only. Lossy for distinguishing old `20k+` rows from the new finer-grained tiers; pre-existing 5-tier `'20k+'` rows remain mapped to `'20k-35k'` after migration.
 - **PR 2** — Migration `20260514011523_extend_cscores_category_check.sql` drops and recreates `cscores_category_check` to permit `'low_score'`.
 
@@ -58,6 +59,9 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 
 ### Fixed
 
+- **Hardening B** — Closed known gap #3: `asset_state_history.to_state` is now constrained at the DB level (see Schema). Removed from `docs/roadmap.md`; `docs/state-machine.md` and `docs/data-model.md` updated to state the constraint exists.
+- **Hardening C** — Closed known gap #6: `_post_to_webhook` now retries transient Discord failures (connection/timeout errors, HTTP 429, HTTP 5xx) up to 3 attempts with exponential backoff (1s, 2s). A 429 `Retry-After` header is honored when present. Permanent failures (4xx other than 429) raise immediately — no point retrying a malformed payload. The caller's failure handling is unchanged; retry just reduces how often a batch is recorded `delivery_status='failed'`.
+- **Hardening D** — Closed known gap #7: `_write_summary` no longer swallows write failures silently. A failure now logs at ERROR (surfaces in the GHA run log) and fires a best-effort `DISCORD_WEBHOOK_SYSTEM` alert. Still never raises — the workflow's `if: always()` step remains the outer safety net.
 - **PR 1** — `scanner_alert_dedup_hours` from `strategy_settings` now reaches `AlertConfig`. `load_alert_config()` accepts an optional `StrategySettings`; when provided, its `scanner_alert_dedup_hours` overrides the `AlertConfig` 8h default. Webhook URLs continue to come from environment variables only.
 - **PR 2** — Closed known gap #5 (`watchlist_min_score` was informational only). Removed from `docs/roadmap.md` known-gaps list.
 
@@ -67,17 +71,18 @@ When a PR ships, add a line under `[Unreleased]` below. When a release is cut, m
 - PR 23 adds 7 net new unit tests: 4 new tier tests (`100k+`, `50k-100k`, `35k-50k`, `20k-35k`), 2 boundary tests (high-score / low-volume falls to `20k-35k`; high-volume / low-score falls to `10k-20k`), 1 ugly-category cap test, and 1 SIZE_BUCKETS-membership sweep. Removed the old `20k+` test (no longer a valid tier).
 - PR 20 adds 4 unit tests (3 persister, 1 selector regression guard against clean/ugly symbol overlap).
 - PR 2 added 24 unit tests across state machine, scoring boundary, selector validity gates, entry-engine typed errors, and parametrised invariant-table coverage.
-- Total unit tests: 379 (was 334 at baseline).
+- Hardening C adds 6 retry tests (4xx no-retry, 5xx retry-then-succeed, give-up-after-max, Retry-After honored, connection-error retry, connection-error exhaustion). Hardening D adds 4 `_write_summary` tests (success, failure does not raise, failure logs ERROR, failure fires system alert). New `tests/unit/test_main_observability.py`.
+- Total unit tests: 389 (was 334 at baseline).
 
 ### Docs
 
+- **Hardening B** — `docs/data-model.md` migrations table gains the 0020 row; `ash_to_state_check` added to the Critical DB Constraints list. `docs/state-machine.md` "States" intro updated to state the CHECK exists. `docs/roadmap.md` Known Gaps drops #3, #6, #7 (all closed by this PR).
 - **PR 23** — `docs/entry-engine.md` Size Buckets table updated to the 8-tier ladder. `docs/data-model.md` migrations table gains the 0019 row.
 - **PR 20** — `docs/data-model.md` gains a "Candidate Counts — Canonical Definition" section pinning the single source of truth. `docs/architecture.md` Observability section now links to it.
 
 ### Known Issues
 
-- `to_state` still has no DB-level CHECK constraint — the new `entry_rejected` and `low_score` values are enforced only by convention. A future migration will close this (carried as gap #3 in `docs/roadmap.md`).
-- `ScanStatus` TS type in `packages/shared-types/src/enums.ts` is missing `'timed_out'` (added in migration 0015); pre-existing drift, not from these changes.
+- `ScanStatus` TS type in `packages/shared-types/src/enums.ts` is missing `'timed_out'` (added in migration 0015); pre-existing drift, not from these changes. Remaining open gaps: type-mirror drift (no codegen) and RLS disabled — both tracked in `docs/roadmap.md`.
 
 ---
 

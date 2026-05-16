@@ -10,7 +10,7 @@ How `apps/scanner/scanner/state_machine.py` records the lifecycle of every asset
 
 ## States
 
-Seven values are written by the scanner today. The DB column `asset_state_history.to_state` is `TEXT` (no CHECK constraint), so additional values can be introduced without a migration — but you should still document them here.
+Seven values are written by the scanner. The DB column `asset_state_history.to_state` is `TEXT` constrained by `ash_to_state_check` (migration 0020) to exactly these seven. Adding a new state requires a follow-up migration to extend the CHECK **and** a `scanner/state_machine.py` change — neither alone is sufficient.
 
 | State | Written when | Source |
 |---|---|---|
