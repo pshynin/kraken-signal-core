@@ -49,9 +49,13 @@ From `apps/scanner/`:
 pip install -r requirements-dev.txt
 python -m scanner.main
 python -m scanner.main --dry-run
+python -m scanner.validation report
+python -m scanner.validation report --since 2026-05-01
 ```
 
 `pip install -r requirements-dev.txt` is one-time — it installs runtime deps plus ruff, mypy, and pytest. `python -m scanner.main` runs a full scan (writes to DB, posts to Discord). `--dry-run` exercises stages 1–6 fully (universe → fetcher → indicators → filter → scoring → selector) and skips persister + alerter. Useful for tuning thresholds without polluting the DB.
+
+`python -m scanner.validation report` is **read-only**: it replays persisted recommendations against forward prices and prints fill / stop / target / MAE-MFE stats, split into `EXACT` and `CLOSE_APPROX` fidelity sections. It needs DB credentials (same `.env` as the scanner) but never writes. `--since YYYY-MM-DD` limits to scan runs on/after that UTC date. Until `ohlcv_candles` has ≥10 days of accrued forward data, expect only the `CLOSE_APPROX` (6h-close approximation) section.
 
 ## Linting, type-checking, tests
 
