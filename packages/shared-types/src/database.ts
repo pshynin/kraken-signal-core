@@ -208,6 +208,40 @@ export interface IndicatorSnapshotInsert {
 
 export type IndicatorSnapshotUpdate = Partial<IndicatorSnapshotInsert>;
 
+// ── ohlcv_candles ─────────────────────────────────────────────────────────────
+// Raw OHLCV candles for hard-filter-passed assets. Deduplicated append:
+// UNIQUE (asset_id, timeframe, candle_timestamp). Not run-scoped — a candle
+// is a market fact, not a property of the run that fetched it. Used by
+// validation tooling. Mirrors scanner OHLCVCandle (models.py).
+
+export interface OhlcvCandleRow {
+  id: string;
+  asset_id: string;
+  timeframe: Timeframe;
+  candle_timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  created_at: string;
+}
+
+export interface OhlcvCandleInsert {
+  id?: string;
+  asset_id: string;
+  timeframe: Timeframe;
+  candle_timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  created_at?: string;
+}
+
+export type OhlcvCandleUpdate = Partial<OhlcvCandleInsert>;
+
 // ── candidate_scores ──────────────────────────────────────────────────────────
 
 export interface CandidateScoreRow {
@@ -433,6 +467,11 @@ export type Database = {
         Row: IndicatorSnapshotRow;
         Insert: IndicatorSnapshotInsert;
         Update: IndicatorSnapshotUpdate;
+      };
+      ohlcv_candles: {
+        Row: OhlcvCandleRow;
+        Insert: OhlcvCandleInsert;
+        Update: OhlcvCandleUpdate;
       };
       candidate_scores: {
         Row: CandidateScoreRow;

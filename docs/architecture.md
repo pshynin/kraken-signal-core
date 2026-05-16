@@ -112,6 +112,7 @@ The only client-side data fetching is the settings form (`components/settings/se
 - **`scan_summary.json`** — written at end of every run; rendered as a GitHub Actions step summary.
 - **`scan_runs` table** — one row per run with status (`running` / `completed` / `partial` / `failed` / `timed_out`), counts, and error message. The `candidates_clean` and `candidates_ugly` counts are derived from rows actually persisted to `candidate_recommendations` (via `PersistResult`), so they cannot drift from what the DB holds — see [data-model.md](data-model.md#candidate-counts--canonical-definition).
 - **`asset_state_history`** — immutable per-asset audit trail. See [state-machine.md](state-machine.md).
+- **`ohlcv_candles`** — raw candles for hard-filter-passed assets, deduplicated append (not run-scoped). Persisted so validation tooling can detect fills / stop / target / MAE-MFE at native timeframe granularity instead of the ~6h close approximation from `market_snapshots`. See [data-model.md](data-model.md#ohlcv_candles).
 - **`alerts_sent`** — every Discord delivery attempt with `delivery_status`, hashed webhook, and response metadata.
 - **`DISCORD_WEBHOOK_SYSTEM`** — optional channel for unhandled-exception alerts.
 
