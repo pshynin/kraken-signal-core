@@ -189,17 +189,95 @@ def test_is_already_alerted_returns_false_when_empty() -> None:
 # ── _post_to_webhook ──────────────────────────────────────────────────────────
 
 
+def _resp(status_code: int, retry_after: str | None = None) -> MagicMock:
+    """Build a fake httpx.Response. raise_for_status raises HTTPStatusError
+    for any status >= 400 (mirroring httpx behaviour)."""
+    import httpx
+
+    r = MagicMock()
+    r.status_code = status_code
+    r.headers = {} if retry_after is None else {"Retry-After": retry_after}
+    if status_code >= 400:
+        r.raise_for_status.side_effect = httpx.HTTPStatusError(
+            str(status_code), request=MagicMock(), response=MagicMock()
+        )
+    else:
+        r.raise_for_status.return_value = None
+    return r
+
+
 def test_post_to_webhook_raises_on_http_error() -> None:
     with patch("httpx.post") as mock_post:
         import httpx
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404", request=MagicMock(), response=MagicMock()
-        )
-        mock_post.return_value = mock_resp
+        mock_post.return_value = _resp(404)
         with pytest.raises(httpx.HTTPStatusError):
             _post_to_webhook("https://example.com/webhook", {"embeds": []})
+
+
+def test_post_to_webhook_does_not_retry_4xx() -> None:
+    """A 404 is permanent — one POST, no retry, immediate raise."""
+    import httpx
+
+    with patch("httpx.post") as mock_post, patch("time.sleep") as mock_sleep:
+        mock_post.return_value = _resp(404)
+        with pytest.raises(httpx.HTTPStatusError):
+            _post_to_webhook("https://example.com/webhook", {"embeds": []})
+    assert mock_post.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+def test_post_to_webhook_retries_5xx_then_succeeds() -> None:
+    """Two 503s then a 204 — succeeds on the third attempt, two backoff sleeps."""
+    with patch("httpx.post") as mock_post, patch("time.sleep") as mock_sleep:
+        mock_post.side_effect = [_resp(503), _resp(503), _resp(204)]
+        _post_to_webhook("https://example.com/webhook", {"embeds": []})
+    assert mock_post.call_count == 3
+    assert mock_sleep.call_count == 2
+
+
+def test_post_to_webhook_gives_up_after_max_attempts() -> None:
+    """Persistent 500 — exhausts retries and raises on the final attempt."""
+    import httpx
+
+    with patch("httpx.post") as mock_post, patch("time.sleep") as mock_sleep:
+        mock_post.side_effect = [_resp(500), _resp(500), _resp(500)]
+        with pytest.raises(httpx.HTTPStatusError):
+            _post_to_webhook("https://example.com/webhook", {"embeds": []})
+    assert mock_post.call_count == 3
+    assert mock_sleep.call_count == 2  # slept before attempts 2 and 3, not after 3
+
+
+def test_post_to_webhook_honors_retry_after_header() -> None:
+    """A 429 with Retry-After: 5 sleeps 5s, not the static backoff (1s)."""
+    with patch("httpx.post") as mock_post, patch("time.sleep") as mock_sleep:
+        mock_post.side_effect = [_resp(429, retry_after="5"), _resp(204)]
+        _post_to_webhook("https://example.com/webhook", {"embeds": []})
+    mock_sleep.assert_called_once_with(5.0)
+
+
+def test_post_to_webhook_retries_connection_error_then_succeeds() -> None:
+    """A RequestError (timeout/connection) is retried, then succeeds."""
+    import httpx
+
+    with patch("httpx.post") as mock_post, patch("time.sleep") as mock_sleep:
+        mock_post.side_effect = [
+            httpx.ConnectError("boom"),
+            _resp(204),
+        ]
+        _post_to_webhook("https://example.com/webhook", {"embeds": []})
+    assert mock_post.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+def test_post_to_webhook_connection_error_exhausts_and_raises() -> None:
+    import httpx
+
+    with patch("httpx.post") as mock_post, patch("time.sleep"):
+        mock_post.side_effect = httpx.ConnectError("boom")
+        with pytest.raises(httpx.ConnectError):
+            _post_to_webhook("https://example.com/webhook", {"embeds": []})
+    assert mock_post.call_count == 3
 
 
 # ── run_alerter ───────────────────────────────────────────────────────────────
