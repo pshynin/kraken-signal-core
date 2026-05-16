@@ -254,6 +254,7 @@ def main(dry_run: bool = False) -> int:
                 filter_result=filter_result,
                 scoring_result=scoring_result,
                 selection_result=selection_result,
+                ohlcv_bundles=fetch_result.successful,
             )
             asset_id_map = persist_result.asset_id_map
             candidates_clean_persisted = persist_result.candidates_clean

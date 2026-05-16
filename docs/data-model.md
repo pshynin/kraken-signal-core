@@ -37,6 +37,7 @@ When a column or field changes, update every affected layer in the same PR.
 | 0018 | `candidate_scores` CHECK extension | Adds `'low_score'` to `cscores_category_check` for the watchlist-floor category | 20260514011523 |
 | 0019 | `candidate_recommendations` 8-tier size buckets | Extends `crecs_size_bucket_check` from 5 to 8 tiers; backfills old `'20k+'` rows to `'20k-35k'` | 20260514122521 |
 | 0020 | `asset_state_history` to_state CHECK | Adds `ash_to_state_check` pinning `to_state` to the 7 scanner-written values | 20260516100203 |
+| 0021 | `ohlcv_candles` | Raw OHLCV candle store for validation tooling; deduplicated append, not run-scoped | 20260516110211 |
 
 > RLS is currently **disabled** for the single-user MVP. Enable + add policies before multi-user.
 
@@ -102,6 +103,10 @@ Status values: `'running' | 'completed' | 'partial' | 'failed' | 'timed_out'` (a
 ### `asset_state_history`
 
 Insert-only. Never updated or deleted. Schema and semantics live in [state-machine.md](state-machine.md).
+
+### `ohlcv_candles`
+
+Raw OHLCV candles for hard-filter-passed assets, written by `persister.upsert_ohlcv_candles`. **Not run-scoped** — there is no `scan_run_id`; a candle is a market fact, not a property of the run that fetched it. `UNIQUE (asset_id, timeframe, candle_timestamp)` makes the persister's upsert a deduplicated append: the scanner re-fetches ~250 candles per timeframe each run but only genuinely new candles add rows. Columns mirror `OHLCVCandle` in `models.py`; `candle_timestamp` is the candle open time (ccxt Unix-ms converted to `timestamptz` on write). Consumed by validation tooling (PR H2+); the dashboard does not read it yet.
 
 ### `strategy_settings`
 

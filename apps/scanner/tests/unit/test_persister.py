@@ -13,10 +13,12 @@ from unittest.mock import MagicMock
 
 from scanner.models import (
     AssetIndicators,
+    AssetOHLCV,
     FilterResult,
     HardFilterResult,
     IndicatorSnapshot,
     MarketMetrics,
+    OHLCVCandle,
     ScoreBreakdown,
     ScoredCandidate,
     ScoringResult,
@@ -34,6 +36,7 @@ from scanner.persister import (
     upsert_candidate_scores,
     upsert_indicator_snapshots,
     upsert_market_snapshots,
+    upsert_ohlcv_candles,
 )
 
 # ── Mock helpers ──────────────────────────────────────────────────────────────
@@ -370,6 +373,112 @@ def test_upsert_indicator_snapshots_skips_missing_asset_id() -> None:
     count = upsert_indicator_snapshots(client, "run-id", {}, [_indicator("BTC")])
     assert count == 0
     client.table.return_value.upsert.assert_not_called()
+
+
+# ── upsert_ohlcv_candles ──────────────────────────────────────────────────────
+
+
+def _bundle(symbol: str = "BTC", n_per_tf: int = 2) -> AssetOHLCV:
+    """AssetOHLCV with n_per_tf candles on each of 4h/1h/30m.
+    Timestamps are distinct Unix-ms values so rows are unique."""
+
+    def _candles(base_ms: int) -> list[OHLCVCandle]:
+        return [
+            OHLCVCandle(
+                timestamp=base_ms + i * 60_000,
+                open=100.0 + i,
+                high=101.0 + i,
+                low=99.0 + i,
+                close=100.5 + i,
+                volume=1000.0 + i,
+            )
+            for i in range(n_per_tf)
+        ]
+
+    return AssetOHLCV(
+        symbol=symbol,
+        kraken_pair=f"{symbol}USD",
+        candles_4h=_candles(1_700_000_000_000),
+        candles_1h=_candles(1_700_000_100_000),
+        candles_30m=_candles(1_700_000_200_000),
+        fetched_at="2026-01-01T00:00:00Z",
+    )
+
+
+def test_upsert_ohlcv_candles_writes_all_timeframes() -> None:
+    client = _client(upsert_data=[{}])
+    upsert_ohlcv_candles(client, {"BTC": "asset-btc"}, [_bundle("BTC", n_per_tf=2)])
+    rows = client.table.return_value.upsert.call_args[0][0]
+    # 2 candles x 3 timeframes
+    assert len(rows) == 6
+    assert {r["timeframe"] for r in rows} == {"4h", "1h", "30m"}
+    assert all(r["asset_id"] == "asset-btc" for r in rows)
+
+
+def test_upsert_ohlcv_candles_converts_ms_timestamp_to_iso() -> None:
+    client = _client(upsert_data=[{}])
+    upsert_ohlcv_candles(client, {"BTC": "asset-btc"}, [_bundle("BTC", n_per_tf=1)])
+    rows = client.table.return_value.upsert.call_args[0][0]
+    # 1_700_000_000_000 ms = 2023-11-14T22:13:20+00:00
+    ts = next(r["candle_timestamp"] for r in rows if r["timeframe"] == "4h")
+    assert ts.startswith("2023-11-14T22:13:20")
+    assert "+00:00" in ts  # UTC-aware ISO
+
+
+def test_upsert_ohlcv_candles_dedup_conflict_key() -> None:
+    """The upsert must target the (asset_id, timeframe, candle_timestamp)
+    conflict key so re-fetched candles dedupe."""
+    client = _client(upsert_data=[{}])
+    upsert_ohlcv_candles(client, {"BTC": "asset-btc"}, [_bundle("BTC")])
+    on_conflict = client.table.return_value.upsert.call_args.kwargs["on_conflict"]
+    assert on_conflict == "asset_id,timeframe,candle_timestamp"
+
+
+def test_upsert_ohlcv_candles_skips_missing_asset_id() -> None:
+    client = _client()
+    count = upsert_ohlcv_candles(client, {}, [_bundle("BTC")])
+    assert count == 0
+    client.table.return_value.upsert.assert_not_called()
+
+
+def test_upsert_ohlcv_candles_empty_bundles_returns_zero() -> None:
+    client = _client()
+    assert upsert_ohlcv_candles(client, {"BTC": "asset-btc"}, []) == 0
+
+
+def test_persist_run_filters_ohlcv_to_passed_symbols() -> None:
+    """persist_run must write OHLCV only for hard-filter-passed assets,
+    even if more bundles are passed in."""
+    fr = _filter_result(passed_syms=["BTC"], excluded_syms=["SCAM"])
+    sr = _scoring_result(clean=["BTC"])
+    sel = _selection_result(clean=["BTC"])
+    bundles = [_bundle("BTC"), _bundle("SCAM")]  # SCAM was excluded
+
+    upsert_data = [{"id": "score-btc", "asset_id": "asset-btc"}]
+    select_data = [{"symbol": "BTC", "id": "asset-btc"}]
+    client = _client(upsert_data=upsert_data, select_data=select_data)
+
+    persist_run(
+        client,
+        "run-id",
+        filter_result=fr,
+        scoring_result=sr,
+        selection_result=sel,
+        ohlcv_bundles=bundles,
+    )
+    # Collect every ohlcv_candles upsert payload.
+    ohlcv_calls = [
+        c
+        for c in client.table.return_value.upsert.call_args_list
+        if c.args
+        and isinstance(c.args[0], list)
+        and c.args[0]
+        and "candle_timestamp" in c.args[0][0]
+    ]
+    assert ohlcv_calls, "expected an ohlcv_candles upsert"
+    written_assets = {row["asset_id"] for call in ohlcv_calls for row in call.args[0]}
+    # Only BTC's asset_id should appear; SCAM was hard-filtered out.
+    assert written_assets == {"asset-btc"}
 
 
 # ── upsert_candidate_scores ───────────────────────────────────────────────────

@@ -7,14 +7,16 @@ Write order (preserves FK dependencies):
     1. scan_runs row — created at pipeline START (status='running')
     2. market_snapshots — one row per hard-filter-passed asset
     3. indicator_snapshots — three rows per asset (4h, 1h, 30m)
-    4. candidate_scores — all assets: scored + hard-filtered (excluded)
-    5. candidate_recommendations — clean + ugly candidates only
+    4. ohlcv_candles — raw candles for passed assets (deduplicated append)
+    5. candidate_scores — all assets: scored + hard-filtered (excluded)
+    6. candidate_recommendations — clean + ugly candidates only
 
 Foreign key chain:
     scan_runs ← market_snapshots     (scan_run_id)
     scan_runs ← indicator_snapshots  (scan_run_id)
     scan_runs ← candidate_scores     (scan_run_id)
     assets    ← all tables           (asset_id)
+    assets    ← ohlcv_candles        (asset_id; NOT run-scoped)
     candidate_scores ← candidate_recommendations (score_id)
 
 Public API
@@ -29,6 +31,7 @@ Internal (exposed for unit tests):
     fetch_asset_id_map(client, symbols)             -> dict[str, str]
     upsert_market_snapshots(...)                    -> int
     upsert_indicator_snapshots(...)                 -> int
+    upsert_ohlcv_candles(client, asset_id_map, bundles) -> int
     upsert_candidate_scores(...)                    -> dict[str, str]   symbol → score_id
     upsert_candidate_recommendations(...)           -> int
 """
@@ -44,6 +47,7 @@ from supabase import Client
 
 from scanner.models import (
     AssetIndicators,
+    AssetOHLCV,
     FilterResult,
     MarketMetrics,
     ScoringResult,
@@ -388,6 +392,78 @@ def upsert_indicator_snapshots(
     return count
 
 
+# ── ohlcv_candles ─────────────────────────────────────────────────────────────
+
+_OHLCV_TIMEFRAMES = ("4h", "1h", "30m")
+
+
+def upsert_ohlcv_candles(
+    client: Client,
+    asset_id_map: dict[str, str],
+    bundles: list[AssetOHLCV],
+) -> int:
+    """Write raw OHLCV candles for hard-filter-passed assets (PR H1).
+
+    Deduplicated append: the upsert conflicts on
+    (asset_id, timeframe, candle_timestamp), so candles re-fetched on later
+    runs (the scanner pulls ~250 per timeframe each run) overwrite themselves
+    with identical values — the table grows only by genuinely new candles.
+
+    Not run-scoped: ohlcv_candles has no scan_run_id. A candle is a market
+    fact, not a property of the run that happened to fetch it.
+
+    Args:
+        asset_id_map: {symbol: asset_uuid}. Bundles whose symbol is absent
+                      are skipped (asset not resolvable).
+        bundles:      AssetOHLCV list — pass the hard-filter-passed subset so
+                      the stored asset set matches market_snapshots.
+
+    Returns:
+        Number of candle rows upserted.
+    """
+    if not bundles:
+        return 0
+
+    rows: list[dict[str, Any]] = []
+    skipped_assets = 0
+
+    for bundle in bundles:
+        asset_id = asset_id_map.get(bundle.symbol)
+        if asset_id is None:
+            log.warning("upsert_ohlcv_candles: no asset_id for %s — skipping", bundle.symbol)
+            skipped_assets += 1
+            continue
+        for tf in _OHLCV_TIMEFRAMES:
+            for c in bundle.candles_for(tf):
+                rows.append(
+                    {
+                        "asset_id": asset_id,
+                        "timeframe": tf,
+                        # ccxt timestamps are Unix milliseconds (UTC).
+                        "candle_timestamp": datetime.fromtimestamp(
+                            c.timestamp / 1000, tz=UTC
+                        ).isoformat(),
+                        "open": c.open,
+                        "high": c.high,
+                        "low": c.low,
+                        "close": c.close,
+                        "volume": c.volume,
+                    }
+                )
+
+    if not rows:
+        return 0
+
+    count = _batch_upsert(client, "ohlcv_candles", rows, "asset_id,timeframe,candle_timestamp")
+    log.info(
+        "upsert_ohlcv_candles: %d candle rows upserted (%d assets, %d skipped)",
+        count,
+        len(bundles) - skipped_assets,
+        skipped_assets,
+    )
+    return count
+
+
 # ── candidate_scores ──────────────────────────────────────────────────────────
 
 
@@ -615,12 +691,13 @@ def persist_run(
     filter_result: FilterResult,
     scoring_result: ScoringResult,
     selection_result: SelectionResult,
+    ohlcv_bundles: list[AssetOHLCV] | None = None,
 ) -> PersistResult:
     """Execute all DB write operations for a completed scan run.
 
     Write order preserves FK dependencies:
-        market_snapshots → indicator_snapshots → candidate_scores
-        → candidate_recommendations
+        market_snapshots → indicator_snapshots → ohlcv_candles
+        → candidate_scores → candidate_recommendations
 
     Call complete_scan_run() AFTER this function returns.
     Call fail_scan_run() if this function raises.
@@ -630,6 +707,11 @@ def persist_run(
         filter_result:    Output of run_hard_filter() (PR 7).
         scoring_result:   Output of run_scoring_engine() (PR 8).
         selection_result: Output of run_candidate_selector() (PR 9).
+        ohlcv_bundles:    Raw AssetOHLCV bundles from the fetcher (PR 5).
+                          Filtered here to the hard-filter-passed subset
+                          before writing ohlcv_candles, so the stored asset
+                          set matches market_snapshots. None / empty skips
+                          OHLCV persistence (e.g. older callers, dry paths).
 
     Returns:
         PersistResult with asset_id_map and the canonical per-category
@@ -661,6 +743,12 @@ def persist_run(
 
     upsert_market_snapshots(client, scan_run_id, asset_id_map, filter_result.passed_metrics)
     upsert_indicator_snapshots(client, scan_run_id, asset_id_map, filter_result.passed_indicators)
+
+    if ohlcv_bundles:
+        passed_symbols = {m.symbol for m in filter_result.passed_metrics}
+        passed_bundles = [b for b in ohlcv_bundles if b.symbol in passed_symbols]
+        upsert_ohlcv_candles(client, asset_id_map, passed_bundles)
+
     score_id_map = upsert_candidate_scores(
         client, scan_run_id, asset_id_map, scoring_result, filter_result
     )
