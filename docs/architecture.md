@@ -116,6 +116,15 @@ The only client-side data fetching is the settings form (`components/settings/se
 - **`alerts_sent`** — every Discord delivery attempt with `delivery_status`, hashed webhook, and response metadata.
 - **`DISCORD_WEBHOOK_SYSTEM`** — optional channel for unhandled-exception alerts.
 
+## Validation
+
+`scanner/validation.py` is a **read-only** analysis module, not part of the scan pipeline. It answers "did past picks work?" by replaying each persisted `candidate_recommendations` row against the asset's forward price path.
+
+- **Pure core** (`compute_outcome`) — deterministic, no DB, no clock. Takes a `TradeSpec` + a forward `list[ForwardCandle]` + a `Fidelity` and returns a `TradeOutcome` (filled / target_hit / stop_hit / expired_open, plus MAE/MFE and realized return). Fully unit-tested with synthetic price paths.
+- **Thin DB layer** — `fetch_trade_specs` reads recommendations; `fetch_forward_path` assembles the price path, preferring `ohlcv_candles` (real high/low) and falling back to `market_snapshots` 6h closes for windows predating OHLCV persistence.
+- **Fidelity is per-trade**: `EXACT` only when `ohlcv_candles` cover the whole 10-day horizon; otherwise `CLOSE_APPROX` (lowest available across the horizon). PR I (CLI report) aggregates these and reports cohorts separately so mixed-fidelity numbers are never silently blended.
+- Locked semantics: fill = price enters `[preferred_entry, max_entry]`; horizon = 10 days; stop-first on same-candle stop/target ambiguity (pessimistic); MAE/MFE measured from the fill price.
+
 ## What Lives Where and Why
 
 | Concern | Lives in | Why |
