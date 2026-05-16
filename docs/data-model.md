@@ -36,6 +36,7 @@ When a column or field changes, update every affected layer in the same PR.
 | 0017 | `candidate_recommendations` extension | Entry engine columns (`setup_type`, `support_anchor_*`, etc.) | 20260512000017 |
 | 0018 | `candidate_scores` CHECK extension | Adds `'low_score'` to `cscores_category_check` for the watchlist-floor category | 20260514011523 |
 | 0019 | `candidate_recommendations` 8-tier size buckets | Extends `crecs_size_bucket_check` from 5 to 8 tiers; backfills old `'20k+'` rows to `'20k-35k'` | 20260514122521 |
+| 0020 | `asset_state_history` to_state CHECK | Adds `ash_to_state_check` pinning `to_state` to the 7 scanner-written values | 20260516100203 |
 
 > RLS is currently **disabled** for the single-user MVP. Enable + add policies before multi-user.
 
@@ -115,6 +116,7 @@ These are enforced at the database level and must not be bypassed:
 - `crecs_size_bucket_check`: `suggested_size_bucket` must be one of `SIZE_BUCKETS` in `models.py`. **Both sides must change together.**
 - `asset_state_history.asset_id` → `assets.id ON DELETE RESTRICT` (prevents accidental cascade deletes losing audit trail).
 - `asset_state_history.scan_run_id` → `scan_runs.id ON DELETE SET NULL` (history survives run pruning).
+- `ash_to_state_check`: `asset_state_history.to_state` must be one of the 7 scanner-written states (`candidate_clean`, `candidate_ugly`, `watchlist`, `low_score`, `entry_rejected`, `excluded`, `alerted`). Adding a new state requires a follow-up migration **and** a `scanner/state_machine.py` change — keep both in sync with [state-machine.md](state-machine.md).
 
 ## Candidate Counts — Canonical Definition
 

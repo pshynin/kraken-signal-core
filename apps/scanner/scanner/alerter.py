@@ -40,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -296,19 +297,79 @@ def _is_already_alerted(
 # ── Webhook POST ──────────────────────────────────────────────────────────────
 
 
-def _post_to_webhook(url: str, payload: dict[str, Any]) -> None:
-    """POST a Discord embed payload to a webhook URL.
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = (1.0, 2.0)  # waits between attempts 1→2 and 2→3
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
-    Discord webhooks accept up to 30 requests/min per URL. The scanner sends
-    at most 10 alerts per run (5 clean + 5 ugly) so no rate-limit handling
-    is required beyond the default httpx timeout.
+
+def _post_to_webhook(url: str, payload: dict[str, Any]) -> None:
+    """POST a Discord embed payload to a webhook URL, with bounded retry.
+
+    Transient failures (connection/timeout errors, HTTP 429, HTTP 5xx) are
+    retried up to _RETRY_MAX_ATTEMPTS total with exponential backoff. A
+    Discord 429 carries a Retry-After header (seconds); it is honored when
+    present, otherwise the static backoff is used. Permanent failures
+    (4xx other than 429 — malformed payload, bad webhook) raise immediately
+    since a retry cannot succeed.
 
     Raises:
-        httpx.HTTPStatusError: on non-2xx responses.
-        httpx.TimeoutException: if the server does not respond within 10 s.
+        httpx.HTTPStatusError: on a non-retryable status, or after the
+            final retry of a retryable status.
+        httpx.RequestError: connection/timeout error after the final retry.
     """
-    resp = httpx.post(url, json=payload, timeout=10.0)
-    resp.raise_for_status()
+    last_exc: Exception | None = None
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            resp = httpx.post(url, json=payload, timeout=10.0)
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _RETRY_MAX_ATTEMPTS:
+                retry_after = _parse_retry_after(resp)
+                wait = (
+                    retry_after if retry_after is not None else _RETRY_BACKOFF_SECONDS[attempt - 1]
+                )
+                log.warning(
+                    "Discord POST got %d (attempt %d/%d) — retrying in %.1fs",
+                    resp.status_code,
+                    attempt,
+                    _RETRY_MAX_ATTEMPTS,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()  # non-retryable 4xx, or final 5xx/429
+            return
+        except httpx.RequestError as exc:
+            last_exc = exc
+            if attempt >= _RETRY_MAX_ATTEMPTS:
+                raise
+            wait = _RETRY_BACKOFF_SECONDS[attempt - 1]
+            log.warning(
+                "Discord POST connection error (attempt %d/%d): %s — retrying in %.1fs",
+                attempt,
+                _RETRY_MAX_ATTEMPTS,
+                exc,
+                wait,
+            )
+            time.sleep(wait)
+    # Unreachable: the loop either returns, raises, or exhausts into the
+    # final raise_for_status / RequestError raise above.
+    if last_exc is not None:
+        raise last_exc
+
+
+def _parse_retry_after(resp: httpx.Response) -> float | None:
+    """Extract a Retry-After value (seconds) from a Discord 429 response.
+
+    Discord sends Retry-After as a number of seconds (may be fractional).
+    Returns None when absent or unparseable so the caller falls back to
+    the static backoff.
+    """
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────

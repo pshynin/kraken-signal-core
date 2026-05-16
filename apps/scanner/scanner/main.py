@@ -40,12 +40,24 @@ def _send_system_alert(message: str) -> None:
 
 
 def _write_summary(path: str, data: dict) -> None:  # type: ignore[type-arg]
-    """Write scan_summary.json for GHA step summary consumption."""
+    """Write scan_summary.json for GHA step summary consumption.
+
+    Observability must never crash the scanner, so a write failure does
+    not raise. But it is no longer silent: the failure is logged at ERROR
+    (so it surfaces in the GHA run log) and a best-effort system alert is
+    fired. The workflow's `if: always()` step remains the outer safety
+    net for a missing summary file.
+    """
     try:
         with open(path, "w") as f:
             json.dump(data, f)
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).error(
+            "Failed to write %s: %s — scan run itself was unaffected", path, exc
+        )
+        _send_system_alert(
+            f":warning: **scan_summary.json write failed** (`{path}`)\n```\n{exc}\n```"
+        )
 
 
 def _configure_logging() -> None:
