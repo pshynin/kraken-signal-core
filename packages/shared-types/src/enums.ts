@@ -90,9 +90,16 @@ export type Timeframe = "4h" | "1h" | "30m";
 export const TIMEFRAMES: Timeframe[] = ["4h", "1h", "30m"];
 
 // ── Scan run lifecycle ────────────────────────────────────────────────────────
-export type ScanStatus = "running" | "completed" | "failed" | "partial";
+// Mirrors the scan_runs_status_check / scan_runs_triggered_by_check constraints
+// (migration 0015 added 'timed_out' and 'ci').
+export type ScanStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "partial"
+  | "timed_out";
 
-export type ScanTrigger = "schedule" | "manual";
+export type ScanTrigger = "schedule" | "manual" | "ci";
 
 // ── Alert types ────────────────────────────────────────────────────────────────
 export type AlertType =
