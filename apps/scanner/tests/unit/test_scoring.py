@@ -176,6 +176,38 @@ def test_score_volatility_none_returns_neutral() -> None:
     assert _score_volatility(_metrics(atr_pct_7d=None)) == pytest.approx(5.0)
 
 
+@pytest.mark.parametrize(
+    "atr,expected",
+    [
+        (3.49, 1.0),  # below soft band — still genuinely too quiet
+        (3.5, 4.0),  # soft-band lower edge
+        (3.82, 4.0),  # XDC's persisted ATR — the artifact this PR targets
+        (3.99, 4.0),  # soft-band upper edge
+        (4.0, 7.0),  # existing 4-6% band boundary unchanged
+        (4.71, 7.0),  # INJ's persisted ATR — unaffected (already >= 4.0)
+    ],
+)
+def test_score_volatility_soft_band_3p5_to_4(atr: float, expected: float) -> None:
+    assert _score_volatility(_metrics(atr_pct_7d=atr)) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "atr,expected",
+    [
+        (6.0, 10.0),
+        (12.0, 10.0),
+        (12.1, 8.0),
+        (18.0, 8.0),
+        (25.0, 5.0),
+        (30.0, 2.0),
+        (30.1, 1.0),
+    ],
+)
+def test_score_volatility_existing_bands_unchanged(atr: float, expected: float) -> None:
+    """Regression: the soft-band insertion must not perturb any other band."""
+    assert _score_volatility(_metrics(atr_pct_7d=atr)) == pytest.approx(expected)
+
+
 # ── _score_structure ──────────────────────────────────────────────────────────
 
 

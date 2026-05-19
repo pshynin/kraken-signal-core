@@ -271,7 +271,8 @@ def _score_volatility(metrics: MarketMetrics) -> float:
     """ATR volatility sweet spot — /10.
 
     6-12% ATR on 4h is optimal (enough movement for meaningful 7-10d trade,
-    but not so wild that execution degrades). Below 4% too quiet; above 25%
+    but not so wild that execution degrades). 3.5-4% is a soft penalty band
+    (near-threshold quiet, not dead); below 3.5% too quiet; above 25%
     execution risk rises sharply.
     """
     atr = metrics.atr_pct_7d
@@ -283,11 +284,13 @@ def _score_volatility(metrics: MarketMetrics) -> float:
         return 8.0  # acceptable for both categories
     if 4.0 <= atr < 6.0:
         return 7.0  # valid for clean, below ugly min
+    if 3.5 <= atr < 4.0:
+        return 4.0  # soft penalty band: near-threshold quiet, not dead
     if 18.0 < atr <= 25.0:
         return 5.0  # ugly territory
     if 25.0 < atr <= 30.0:
         return 2.0  # near ceiling; execution risky
-    return 1.0  # < 4% (should be filtered) or > 30%
+    return 1.0  # < 3.5% (genuinely too quiet) or > 30%
 
 
 def _score_structure(indicator: AssetIndicators) -> float:
