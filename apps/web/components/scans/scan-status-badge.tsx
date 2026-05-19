@@ -1,12 +1,12 @@
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLES: Record<string, string> = {
-  completed: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30",
-  partial: "bg-yellow-500/15 text-yellow-400 ring-yellow-500/30",
-  running: "bg-blue-500/15 text-blue-400 ring-blue-500/30",
+  completed: "bg-bull/15 text-bull ring-bull/30",
+  partial: "bg-caution/15 text-caution ring-caution/30",
+  running: "bg-info/15 text-info ring-info/30",
   pending: "bg-muted text-muted-foreground ring-border",
-  failed: "bg-red-500/15 text-red-400 ring-red-500/30",
-  timed_out: "bg-orange-500/15 text-orange-400 ring-orange-500/30",
+  failed: "bg-bear/15 text-bear ring-bear/30",
+  timed_out: "bg-caution/15 text-caution ring-caution/30",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -25,7 +25,7 @@ export function ScanStatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
         styles
       )}
     >

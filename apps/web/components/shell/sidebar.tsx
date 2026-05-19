@@ -11,6 +11,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MomentumLogo } from "@/components/brand/momentum-logo";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutDashboard, exact: true },
@@ -35,41 +36,59 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex h-screen w-56 flex-shrink-0 flex-col border-r border-border bg-card">
-      {/* Logo */}
-      <div className="flex h-14 items-center gap-2 border-b border-border px-4">
-        <span className="text-primary select-none text-base">◈</span>
-        <span className="text-sm font-semibold tracking-tight text-foreground">
+    <aside className="flex h-screen w-60 flex-shrink-0 flex-col border-r border-border bg-card">
+      {/* Brand */}
+      <div className="flex h-16 items-center gap-2.5 border-b border-border px-5">
+        <MomentumLogo size={22} className="text-foreground" />
+        <span className="text-[0.95rem] font-semibold tracking-tight text-foreground">
           Momentum Copilot
         </span>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-0.5 p-2 pt-3">
-        {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-              isActive(href, exact)
-                ? "bg-muted text-foreground font-medium"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </Link>
-        ))}
+      <nav className="flex-1 space-y-0.5 px-3 py-4">
+        {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => {
+          const active = isActive(href, exact);
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                "group relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                active
+                  ? "bg-muted/70 text-foreground"
+                  : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              )}
+            >
+              {/* Active rail — restrained green accent */}
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute inset-y-1.5 left-0 w-[2px] rounded-full transition-colors",
+                  active ? "bg-primary" : "bg-transparent"
+                )}
+              />
+              <Icon
+                className={cn(
+                  "h-4 w-4 shrink-0 transition-colors",
+                  active
+                    ? "text-foreground"
+                    : "text-muted-foreground group-hover:text-foreground"
+                )}
+              />
+              <span className={cn(active && "font-medium")}>{label}</span>
+            </Link>
+          );
+        })}
       </nav>
 
       {/* Sign out */}
-      <div className="border-t border-border p-2">
+      <div className="border-t border-border px-3 py-3">
         <button
           onClick={handleLogout}
           className={cn(
             "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm",
-            "text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            "text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
           )}
         >
           <LogOut className="h-4 w-4 shrink-0" />

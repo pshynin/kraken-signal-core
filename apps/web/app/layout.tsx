@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,8 +13,17 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Momentum Copilot",
+  title: {
+    default: "Momentum Copilot",
+    template: "%s — Momentum Copilot",
+  },
   description: "Kraken Spot Scanner — Decision Support System",
+  applicationName: "Momentum Copilot",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0a0f1a",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({

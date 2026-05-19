@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { MomentumLogo } from "@/components/brand/momentum-logo";
 
 // ── Inner form — isolated in its own component so useSearchParams()
 // has a Suspense boundary (required by Next.js App Router).
@@ -42,11 +43,11 @@ function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       <div className="space-y-2">
         <label
           htmlFor="passcode"
-          className="block text-sm font-medium text-foreground"
+          className="block text-xs font-medium uppercase tracking-wider text-muted-foreground"
         >
           Passcode
         </label>
@@ -59,10 +60,11 @@ function LoginForm() {
           value={passcode}
           onChange={(e) => setPasscode(e.target.value)}
           className={[
-            "w-full rounded-md border bg-card px-3 py-2 text-sm",
-            "font-mono text-foreground placeholder:text-muted-foreground",
-            "focus:outline-none focus:ring-1 focus:ring-primary",
-            error ? "border-bear" : "border-border",
+            "w-full rounded-md border bg-background px-3.5 py-2.5 text-sm",
+            "font-mono text-foreground placeholder:text-muted-foreground/50",
+            "transition-colors focus:outline-none focus:border-primary/60",
+            "focus:ring-1 focus:ring-primary/40",
+            error ? "border-bear/60" : "border-border",
           ].join(" ")}
           placeholder="••••••••"
         />
@@ -74,9 +76,10 @@ function LoginForm() {
         type="submit"
         disabled={loading || !passcode}
         className={[
-          "w-full rounded-md bg-primary px-4 py-2 text-sm font-medium",
-          "text-primary-foreground transition-opacity",
-          "hover:opacity-90 disabled:opacity-40",
+          "w-full rounded-md bg-primary px-4 py-2.5 text-sm font-semibold",
+          "text-primary-foreground transition-all",
+          "hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40",
+          "shadow-card",
         ].join(" ")}
       >
         {loading ? "Verifying…" : "Access Dashboard"}
@@ -89,12 +92,12 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-sm space-y-8 px-4">
-        {/* Logo */}
-        <div className="text-center space-y-2">
-          <div className="flex items-center justify-center gap-2">
-            <span className="text-primary text-2xl select-none">◈</span>
+    <main className="relative min-h-screen flex items-center justify-center bg-background px-4">
+      <div className="w-full max-w-sm space-y-8">
+        {/* Brand */}
+        <div className="text-center space-y-4">
+          <div className="flex items-center justify-center gap-2.5">
+            <MomentumLogo size={32} className="text-foreground" />
             <span className="text-foreground font-semibold text-xl tracking-tight">
               Momentum Copilot
             </span>
@@ -104,12 +107,14 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Form — Suspense boundary required for useSearchParams() */}
-        <Suspense fallback={<div className="h-[152px]" />}>
-          <LoginForm />
-        </Suspense>
+        {/* Card */}
+        <div className="rounded-xl border border-border/70 bg-card p-6 shadow-elevated">
+          <Suspense fallback={<div className="h-[164px]" />}>
+            <LoginForm />
+          </Suspense>
+        </div>
 
-        <p className="text-center text-xs text-muted-foreground font-mono">
+        <p className="text-center text-[11px] uppercase tracking-[0.2em] text-muted-foreground/60 font-mono">
           kraken-signal-core
         </p>
       </div>

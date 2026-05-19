@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { createServerClient } from "@/lib/supabase/server";
 import { SettingsForm, type RawSettingRow } from "@/components/settings/settings-form";
+import { PageShell, PageHeader } from "@/components/shell/page-shell";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Settings" };
 
 async function fetchSettings(): Promise<RawSettingRow[]> {
   try {
@@ -38,22 +41,21 @@ export default async function SettingsPage() {
         })
       : null;
 
+  const subtitle = (
+    <>
+      {settings.length} parameters loaded from database
+      {lastUpdated && (
+        <span className="ml-2 text-muted-foreground/60">
+          · last updated {lastUpdated}
+        </span>
+      )}
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-5xl px-8 py-8 space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">
-          Strategy Settings
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {settings.length} parameters loaded from database
-          {lastUpdated && (
-            <span className="ml-2 text-muted-foreground/60">
-              · last updated {lastUpdated}
-            </span>
-          )}
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader title="Strategy Settings" subtitle={subtitle} />
       <SettingsForm settings={settings} />
-    </div>
+    </PageShell>
   );
 }
