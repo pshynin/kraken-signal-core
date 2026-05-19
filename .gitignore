@@ -64,3 +64,9 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+
+# ── Claude Code ──────────────────────────────────────────
+# Shared project config (.claude/settings.json) IS tracked.
+# Personal overrides and generated agent worktrees are not.
+.claude/settings.local.json
+.claude/worktrees/
