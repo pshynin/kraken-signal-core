@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { fetchAlertHistory } from "@/lib/queries/alerts";
 import { AlertHistoryTable } from "@/components/alerts/alert-history-table";
+import { PageShell, PageHeader } from "@/components/shell/page-shell";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Alert History" };
 
 export default async function AlertsPage() {
   const alerts = await fetchAlertHistory(100);
@@ -11,25 +14,22 @@ export default async function AlertsPage() {
     (a) => a.delivery_status === "failed"
   ).length;
 
+  const subtitle = (
+    <>
+      {alerts.length} most recent alerts
+      {sentCount > 0 && (
+        <span className="ml-2 text-bull">{sentCount} sent</span>
+      )}
+      {failedCount > 0 && (
+        <span className="ml-2 text-bear">{failedCount} failed</span>
+      )}
+    </>
+  );
+
   return (
-    <div className="mx-auto max-w-5xl px-8 py-8 space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">
-            Alert History
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {alerts.length} most recent alerts
-            {sentCount > 0 && (
-              <span className="ml-2 text-emerald-400">{sentCount} sent</span>
-            )}
-            {failedCount > 0 && (
-              <span className="ml-2 text-red-400">{failedCount} failed</span>
-            )}
-          </p>
-        </div>
-      </div>
+    <PageShell>
+      <PageHeader title="Alert History" subtitle={subtitle} />
       <AlertHistoryTable rows={alerts} />
-    </div>
+    </PageShell>
   );
 }

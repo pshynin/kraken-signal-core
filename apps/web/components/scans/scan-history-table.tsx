@@ -25,17 +25,17 @@ interface Props {
 export function ScanHistoryTable({ rows }: Props) {
   if (rows.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border/70 text-sm text-muted-foreground">
         No scan runs recorded yet.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-card">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border bg-muted/50 text-left text-xs text-muted-foreground">
+          <tr className="border-b border-border/60 bg-muted/30 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
             <th className="px-4 py-3 font-medium">Started</th>
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Trigger</th>
@@ -47,11 +47,11 @@ export function ScanHistoryTable({ rows }: Props) {
             <th className="px-4 py-3 font-medium text-right">Alerts</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border">
+        <tbody className="divide-y divide-border/50">
           {rows.map((row) => (
             <tr
               key={row.id}
-              className="group transition-colors hover:bg-muted/30"
+              className="group transition-colors hover:bg-muted/20"
             >
               <td className="px-4 py-3 font-mono tabular-nums">
                 <Link
@@ -73,7 +73,7 @@ export function ScanHistoryTable({ rows }: Props) {
                 <ScanStatusBadge status={row.status} />
                 {row.error_message && (
                   <div
-                    className="mt-0.5 max-w-[180px] truncate text-xs text-red-400"
+                    className="mt-0.5 max-w-[180px] truncate text-xs text-bear"
                     title={row.error_message}
                   >
                     {row.error_message}
@@ -86,19 +86,19 @@ export function ScanHistoryTable({ rows }: Props) {
               <td className="px-4 py-3 text-right font-mono tabular-nums text-muted-foreground">
                 {formatDuration(row.duration_seconds)}
               </td>
-              <td className="px-4 py-3 text-right font-mono tabular-nums">
+              <td className="px-4 py-3 text-right font-mono tabular-nums text-foreground">
                 <Num n={row.assets_scanned} />
               </td>
-              <td className="px-4 py-3 text-right font-mono tabular-nums">
+              <td className="px-4 py-3 text-right font-mono tabular-nums text-foreground">
                 <Num n={row.assets_passed_filter} />
               </td>
-              <td className="px-4 py-3 text-right font-mono tabular-nums text-emerald-400">
+              <td className="px-4 py-3 text-right font-mono tabular-nums text-bull">
                 <Num n={row.candidates_clean} />
               </td>
-              <td className="px-4 py-3 text-right font-mono tabular-nums text-yellow-400">
+              <td className="px-4 py-3 text-right font-mono tabular-nums text-caution">
                 <Num n={row.candidates_ugly} />
               </td>
-              <td className="px-4 py-3 text-right font-mono tabular-nums text-blue-400">
+              <td className="px-4 py-3 text-right font-mono tabular-nums text-foreground">
                 <Num n={row.alerts_sent} />
               </td>
             </tr>

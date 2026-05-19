@@ -98,8 +98,8 @@ function Th({ children, sortKey, sort, onSort, className }: ThProps) {
     <th
       onClick={sortable && sortKey ? () => onSort?.(sortKey) : undefined}
       className={cn(
-        "px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground",
-        sortable && "cursor-pointer select-none hover:text-foreground",
+        "px-3 py-3 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground",
+        sortable && "cursor-pointer select-none transition-colors hover:text-foreground",
         className
       )}
     >
@@ -159,38 +159,46 @@ export function CandidatesTable({
   }, [rows, category, sort]);
 
   return (
-    <div className="space-y-0">
+    <div className="rounded-xl border border-border/70 bg-card shadow-card">
       {/* Category tabs */}
-      <div className="flex items-center gap-0 border-b border-border">
+      <div className="flex items-center gap-1 border-b border-border/60 px-2">
         {tabs.map(({ value, label, count }) => (
           <button
             key={value}
             onClick={() => setCategory(value)}
             className={cn(
-              "flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+              "relative flex items-center gap-1.5 px-3.5 py-3 text-sm font-medium transition-colors",
               category === value
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground"
             )}
           >
             {label}
             <span
               className={cn(
-                "rounded-full px-1.5 py-0.5 text-xs",
+                "rounded-md px-1.5 py-0.5 text-[11px] tabular-nums font-medium transition-colors",
                 category === value
-                  ? "bg-muted text-foreground"
+                  ? "bg-primary/15 text-primary"
                   : "bg-muted/40 text-muted-foreground"
               )}
             >
               {count}
             </span>
+            {/* Active underline */}
+            <span
+              aria-hidden
+              className={cn(
+                "absolute inset-x-3 -bottom-px h-[2px] rounded-full transition-colors",
+                category === value ? "bg-primary" : "bg-transparent"
+              )}
+            />
           </button>
         ))}
       </div>
 
       {/* Empty state */}
       {displayed.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-b-lg border-x border-b border-border bg-card py-16">
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
           <ListX className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm font-medium text-foreground">
             No active candidates
@@ -202,10 +210,10 @@ export function CandidatesTable({
         </div>
       ) : (
         /* Table */
-        <div className="overflow-x-auto rounded-b-lg border-x border-b border-border">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-card/80">
+              <tr className="border-b border-border/60 bg-muted/20">
                 <Th className="w-10">#</Th>
                 <Th>Symbol</Th>
                 <Th className="w-16">Type</Th>
@@ -227,14 +235,11 @@ export function CandidatesTable({
                 </Th>
               </tr>
             </thead>
-            <tbody>
-              {displayed.map((row, i) => (
+            <tbody className="divide-y divide-border/50">
+              {displayed.map((row) => (
                 <tr
                   key={row.id}
-                  className={cn(
-                    "border-b border-border/40 transition-colors hover:bg-muted/20",
-                    i % 2 === 0 ? "bg-background" : "bg-card/20"
-                  )}
+                  className="transition-colors hover:bg-muted/20"
                 >
                   {/* Rank */}
                   <Td className="w-10 tabular-nums text-muted-foreground text-xs">

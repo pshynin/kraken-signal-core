@@ -5,16 +5,16 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import type { AlertHistoryRow } from "@/lib/queries/alerts";
 
 const DELIVERY_STYLES: Record<string, string> = {
-  sent: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30",
-  failed: "bg-red-500/15 text-red-400 ring-red-500/30",
+  sent: "bg-bull/15 text-bull ring-bull/30",
+  failed: "bg-bear/15 text-bear ring-bear/30",
   skipped: "bg-muted text-muted-foreground ring-border",
 };
 
 const TYPE_STYLES: Record<string, string> = {
-  new_candidate: "bg-blue-500/15 text-blue-400 ring-blue-500/30",
-  state_change: "bg-yellow-500/15 text-yellow-400 ring-yellow-500/30",
-  invalidation: "bg-orange-500/15 text-orange-400 ring-orange-500/30",
-  system: "bg-purple-500/15 text-purple-400 ring-purple-500/30",
+  new_candidate: "bg-info/15 text-info ring-info/30",
+  state_change: "bg-caution/15 text-caution ring-caution/30",
+  invalidation: "bg-bear/15 text-bear ring-bear/30",
+  system: "bg-muted text-muted-foreground ring-border",
 };
 
 function Badge({
@@ -27,7 +27,7 @@ function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
         styles
       )}
     >
@@ -43,17 +43,17 @@ interface Props {
 export function AlertHistoryTable({ rows }: Props) {
   if (rows.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border/70 text-sm text-muted-foreground">
         No alerts sent yet.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-card">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border bg-muted/50 text-left text-xs text-muted-foreground">
+          <tr className="border-b border-border/60 bg-muted/30 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
             <th className="px-4 py-3 font-medium">Sent</th>
             <th className="px-4 py-3 font-medium">Symbol</th>
             <th className="px-4 py-3 font-medium">Type</th>
@@ -62,11 +62,11 @@ export function AlertHistoryTable({ rows }: Props) {
             <th className="px-4 py-3 font-medium">Scan Run</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border">
+        <tbody className="divide-y divide-border/50">
           {rows.map((row) => (
             <tr
               key={row.id}
-              className="transition-colors hover:bg-muted/30"
+              className="transition-colors hover:bg-muted/20"
             >
               <td className="px-4 py-3 font-mono tabular-nums text-muted-foreground">
                 {row.sent_at
@@ -113,7 +113,7 @@ export function AlertHistoryTable({ rows }: Props) {
                 />
                 {row.error_message && (
                   <div
-                    className="mt-0.5 max-w-[200px] truncate text-xs text-red-400"
+                    className="mt-0.5 max-w-[200px] truncate text-xs text-bear"
                     title={row.error_message}
                   >
                     {row.error_message}

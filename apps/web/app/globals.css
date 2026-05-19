@@ -4,24 +4,27 @@
 
 @layer base {
   :root {
-    /* Dark trading-terminal palette */
-    --background:        222 47% 5%;
+    /* Premium fintech dark — deep blue-black surfaces, restrained neon-green accent */
+    --background:        222 47% 4%;
     --foreground:        210 40% 96%;
 
-    --card:              222 47% 8%;
+    --card:              222 40% 7%;
     --card-foreground:   210 40% 96%;
 
-    --primary:           142 71% 45%;   /* emerald — clean candidates */
+    --surface-elevated:  222 36% 9%;
+
+    --primary:           142 71% 45%;   /* emerald — accent only */
     --primary-foreground: 144 100% 97%;
 
-    --muted:             217 33% 15%;
-    --muted-foreground:  215 20% 55%;
+    --muted:             217 30% 13%;
+    --muted-foreground:  215 18% 58%;
 
     --accent:            38 92% 50%;    /* amber — ugly / warning */
     --accent-foreground: 38 100% 10%;
 
-    --border:            217 33% 15%;
-    --radius:            0.5rem;
+    --border:            217 28% 15%;
+    --ring:              142 71% 45%;
+    --radius:            0.625rem;
   }
 }
 
@@ -32,10 +35,31 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
   }
 
   /* Monospace numbers in tables — prevent column-width jitter */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Subtle full-page vignette — gives the dark canvas depth without flash */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    background:
+      radial-gradient(
+        ellipse 80% 50% at 50% -10%,
+        hsl(142 60% 30% / 0.06),
+        transparent 60%
+      );
+  }
+
+  /* Premium focus ring — restrained, accessible */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/50 ring-offset-2 ring-offset-background;
   }
 }

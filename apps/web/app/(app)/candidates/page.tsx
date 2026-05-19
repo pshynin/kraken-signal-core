@@ -1,16 +1,15 @@
+import type { Metadata } from "next";
 import { CandidatesTable } from "@/components/candidates/candidates-table";
 import { fetchActiveCandidates } from "@/lib/queries/candidates";
+import { PageShell, PageHeader } from "@/components/shell/page-shell";
 import type { RecommendationCategory } from "@kraken-signal/shared-types";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+export const metadata: Metadata = { title: "Candidates" };
 
 function isCategory(v: string | undefined): v is RecommendationCategory {
   return v === "clean" || v === "ugly";
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-// Next.js 15: searchParams is a Promise in Server Components.
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
@@ -26,34 +25,22 @@ export default async function CandidatesPage({ searchParams }: PageProps) {
   const uglyCount = rows.filter((r) => r.category === "ugly").length;
 
   return (
-    <div className="mx-auto max-w-7xl px-8 py-8 space-y-6">
-          {/* Header */}
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-xl font-semibold text-foreground">
-                Candidates
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Active scanner candidates with entry, target, and stop
-                parameters.
-              </p>
+    <PageShell>
+      <PageHeader
+        title="Candidates"
+        subtitle="Active scanner candidates with entry, target, and stop parameters."
+        right={
+          rows.length > 0 && (
+            <div className="flex items-center gap-3 text-xs tabular-nums">
+              <span className="text-bull font-medium">{cleanCount} clean</span>
+              <span className="text-border">·</span>
+              <span className="text-caution font-medium">{uglyCount} ugly</span>
             </div>
+          )
+        }
+      />
 
-            {rows.length > 0 && (
-              <div className="flex items-center gap-3 pt-1 text-xs tabular-nums">
-                <span className="text-bull font-medium">
-                  {cleanCount} clean
-                </span>
-                <span className="text-border">·</span>
-                <span className="text-caution font-medium">
-                  {uglyCount} ugly
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Candidates table (tabs + sortable rows) */}
-          <CandidatesTable rows={rows} initialCategory={initialCategory} />
-    </div>
+      <CandidatesTable rows={rows} initialCategory={initialCategory} />
+    </PageShell>
   );
 }

@@ -9,6 +9,7 @@ import {
 } from "@/lib/queries/diagnostics";
 import { ScanStatusBadge } from "@/components/scans/scan-status-badge";
 import { CategoryBadge } from "@/components/candidates/state-badge";
+import { PageShell } from "@/components/shell/page-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +23,12 @@ function StatCard({
   dim?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="rounded-xl border border-border/70 bg-card p-4 shadow-card">
+      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </p>
       <p
-        className={`mt-1 text-xl font-semibold tabular-nums ${dim ? "text-muted-foreground" : "text-foreground"}`}
+        className={`mt-2 text-xl font-semibold tabular-nums tracking-tight ${dim ? "text-muted-foreground" : "text-foreground"}`}
       >
         {value ?? "—"}
       </p>
@@ -63,30 +66,27 @@ export default async function ScanRunPage({
   if (!run) notFound();
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Back link */}
+    <PageShell>
       <Link
         href="/scans"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ChevronLeft className="h-4 w-4" />
         Scan History
       </Link>
 
-      {/* Header */}
-      <div className="flex items-center gap-3">
+      <header className="flex items-center gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">
+          <h1 className="text-[1.375rem] font-semibold tracking-tight text-foreground">
             Scan Run Detail
           </h1>
-          <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+          <p className="mt-1 font-mono text-xs text-muted-foreground">
             {run.id}
           </p>
         </div>
         <ScanStatusBadge status={run.status} />
-      </div>
+      </header>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         <StatCard
           label="Started"
@@ -110,26 +110,25 @@ export default async function ScanRunPage({
       </div>
 
       {run.error_message && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-xl border border-bear/30 bg-bear/10 px-4 py-3 text-sm text-bear">
           <span className="font-medium">Error: </span>
           {run.error_message}
         </div>
       )}
 
-      {/* Candidates */}
-      <div>
-        <h2 className="mb-3 text-sm font-medium text-foreground">
+      <section>
+        <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
           Candidates ({candidates.length})
         </h2>
         {candidates.length === 0 ? (
-          <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+          <div className="flex h-32 items-center justify-center rounded-xl border border-dashed border-border/70 text-sm text-muted-foreground">
             No candidates for this run.
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-xl border border-border/70 bg-card shadow-card">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/50 text-left text-xs text-muted-foreground">
+                <tr className="border-b border-border/60 bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Symbol</th>
                   <th className="px-4 py-3 font-medium">Cat</th>
                   <th className="px-4 py-3 font-medium text-right">Rank</th>
@@ -143,9 +142,9 @@ export default async function ScanRunPage({
                   <th className="px-4 py-3 font-medium">State</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="divide-y divide-border/50">
                 {candidates.map((c) => (
-                  <tr key={c.id} className="hover:bg-muted/30 transition-colors">
+                  <tr key={c.id} className="transition-colors hover:bg-muted/20">
                     <td className="px-4 py-2.5 font-mono font-medium text-foreground">
                       <Link
                         href={`/assets/${encodeURIComponent(c.symbol)}`}
@@ -173,10 +172,10 @@ export default async function ScanRunPage({
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       ${c.entry_price.toFixed(4)}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-emerald-400">
+                    <td className="px-4 py-2.5 text-right tabular-nums text-bull">
                       ${c.exit_price.toFixed(4)}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-red-400">
+                    <td className="px-4 py-2.5 text-right tabular-nums text-bear">
                       ${c.stop_loss.toFixed(4)}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
@@ -194,29 +193,27 @@ export default async function ScanRunPage({
             </table>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Diagnostics — exclusion / rejection / category breakdown panels */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Hard-filter exclusions */}
         <section>
-          <h2 className="mb-3 text-sm font-medium text-foreground">
+          <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
             Hard-Filter Exclusions ({exclusions.reduce((s, e) => s + e.count, 0)})
           </h2>
           {exclusions.length === 0 ? (
-            <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+            <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-border/70 text-sm text-muted-foreground">
               No exclusions for this run.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border">
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-card">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/50 text-left text-xs text-muted-foreground">
+                  <tr className="border-b border-border/60 bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                     <th className="px-4 py-2.5 font-medium">Reason</th>
                     <th className="px-4 py-2.5 font-medium text-right">Count</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody className="divide-y divide-border/50">
                   {exclusions.map((e) => (
                     <tr key={e.reason}>
                       <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
@@ -233,26 +230,25 @@ export default async function ScanRunPage({
           )}
         </section>
 
-        {/* Entry-engine rejections */}
         <section>
-          <h2 className="mb-3 text-sm font-medium text-foreground">
+          <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
             Entry-Engine Rejections ({rejections.length})
           </h2>
           {rejections.length === 0 ? (
-            <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+            <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-border/70 text-sm text-muted-foreground">
               No entry rejections for this run.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border">
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-card shadow-card">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/50 text-left text-xs text-muted-foreground">
+                  <tr className="border-b border-border/60 bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                     <th className="px-4 py-2.5 font-medium">Symbol</th>
                     <th className="px-4 py-2.5 font-medium">Setup</th>
                     <th className="px-4 py-2.5 font-medium">Reason</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody className="divide-y divide-border/50">
                   {rejections.map((r, i) => (
                     <tr key={`${r.symbol}-${i}`}>
                       <td className="px-4 py-2 font-mono font-medium text-foreground">
@@ -278,9 +274,8 @@ export default async function ScanRunPage({
         </section>
       </div>
 
-      {/* Watchlist / Low Score counts */}
       <section>
-        <h2 className="mb-3 text-sm font-medium text-foreground">
+        <h2 className="mb-3 text-sm font-semibold tracking-tight text-foreground">
           Below Selection Threshold
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:max-w-sm">
@@ -288,6 +283,6 @@ export default async function ScanRunPage({
           <StatCard label="Low Score" value={breakdown.low_score} dim />
         </div>
       </section>
-    </div>
+    </PageShell>
   );
 }

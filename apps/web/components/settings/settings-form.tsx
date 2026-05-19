@@ -43,10 +43,10 @@ function StatusDot({ state }: { state: "idle" | "saving" | "ok" | "err" }) {
   if (state === "idle") return null;
   return (
     <span
-      className={cn("ml-2 text-xs", {
+      className={cn("ml-2 text-[11px] font-medium", {
         "text-muted-foreground animate-pulse": state === "saving",
-        "text-emerald-400": state === "ok",
-        "text-red-400": state === "err",
+        "text-bull": state === "ok",
+        "text-bear": state === "err",
       })}
     >
       {state === "saving" ? "saving…" : state === "ok" ? "saved" : "error"}
@@ -79,7 +79,7 @@ function SettingField({ row }: FieldProps) {
     setStatus("saving");
     let valueJson: string;
     if (type === "boolean") {
-      valueJson = draft; // "true" or "false"
+      valueJson = draft;
     } else if (type === "number") {
       const n = Number(draft);
       if (isNaN(n)) { setStatus("err"); return; }
@@ -98,7 +98,7 @@ function SettingField({ row }: FieldProps) {
   const shortKey = row.setting_key.split(".").slice(1).join(".");
 
   return (
-    <div className="flex items-start gap-4 rounded-lg px-4 py-3 hover:bg-muted/20 transition-colors">
+    <div className="flex items-start gap-4 px-5 py-4 transition-colors hover:bg-muted/15">
       {/* Key + description */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -108,7 +108,7 @@ function SettingField({ row }: FieldProps) {
           <StatusDot state={isPending ? "saving" : status} />
         </div>
         {row.description && (
-          <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
+          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
             {row.description}
           </p>
         )}
@@ -123,8 +123,9 @@ function SettingField({ row }: FieldProps) {
               setDraft(next);
             }}
             className={cn(
-              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
-              draft === "true" ? "bg-primary" : "bg-muted-foreground/30"
+              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+              draft === "true" ? "bg-primary" : "bg-muted-foreground/25"
             )}
           >
             <span
@@ -140,14 +141,24 @@ function SettingField({ row }: FieldProps) {
             value={draft}
             step="any"
             onChange={(e) => setDraft(e.target.value)}
-            className="w-28 rounded border border-border bg-card px-2 py-1 text-right font-mono text-sm text-foreground focus:border-primary focus:outline-none"
+            className={cn(
+              "w-28 rounded-md border border-border bg-background/60 px-2.5 py-1.5",
+              "text-right font-mono text-sm text-foreground transition-colors",
+              "focus:border-primary/60 focus:bg-background focus:outline-none",
+              "focus:ring-1 focus:ring-primary/40"
+            )}
           />
         ) : (
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={3}
-            className="w-64 rounded border border-border bg-card px-2 py-1 font-mono text-xs text-foreground focus:border-primary focus:outline-none resize-y"
+            className={cn(
+              "w-64 rounded-md border border-border bg-background/60 px-2.5 py-1.5",
+              "font-mono text-xs text-foreground transition-colors resize-y",
+              "focus:border-primary/60 focus:bg-background focus:outline-none",
+              "focus:ring-1 focus:ring-primary/40"
+            )}
           />
         )}
 
@@ -155,9 +166,9 @@ function SettingField({ row }: FieldProps) {
           onClick={save}
           disabled={!isDirty || isPending}
           className={cn(
-            "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+            "rounded-md px-3 py-1.5 text-xs font-semibold transition-all",
             isDirty && !isPending
-              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              ? "bg-primary text-primary-foreground shadow-card hover:bg-primary/90"
               : "cursor-not-allowed bg-muted text-muted-foreground"
           )}
         >
@@ -183,31 +194,38 @@ export function SettingsForm({ settings }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-lg border border-border bg-card p-1">
+      {/* Segmented tabs */}
+      <div className="inline-flex items-center gap-0.5 rounded-lg border border-border/70 bg-card p-1 shadow-card">
         {GROUPS.map((g) => (
           <button
             key={g}
             onClick={() => setActiveGroup(g)}
             className={cn(
-              "flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              "rounded-md px-3.5 py-1.5 text-xs font-medium transition-all",
               activeGroup === g
-                ? "bg-muted text-foreground"
+                ? "bg-muted text-foreground shadow-card"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
             {GROUP_LABELS[g]}
-            <span className="ml-1 text-muted-foreground/60">
-              ({grouped[g].length})
+            <span
+              className={cn(
+                "ml-1.5 tabular-nums",
+                activeGroup === g
+                  ? "text-primary"
+                  : "text-muted-foreground/60"
+              )}
+            >
+              {grouped[g].length}
             </span>
           </button>
         ))}
       </div>
 
       {/* Fields */}
-      <div className="divide-y divide-border rounded-lg border border-border bg-card">
+      <div className="divide-y divide-border/50 rounded-xl border border-border/70 bg-card shadow-card">
         {grouped[activeGroup].length === 0 ? (
-          <p className="p-6 text-center text-sm text-muted-foreground">
+          <p className="p-8 text-center text-sm text-muted-foreground">
             No settings in this group.
           </p>
         ) : (
