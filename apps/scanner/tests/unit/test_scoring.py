@@ -208,6 +208,69 @@ def test_score_volatility_existing_bands_unchanged(atr: float, expected: float) 
     assert _score_volatility(_metrics(atr_pct_7d=atr)) == pytest.approx(expected)
 
 
+# Motivating example from scan_run 4a00aeac-aeb1-49b2-8752-f2a5de243237:
+# XDC's real ATR was 3.82% and the old `< 4.0% → 1` cliff was the single
+# binding artifact that buried an otherwise-decent setup in low_score.
+# This regression pins the *causal mechanism* — the band crossing is the
+# only variable — rather than a reconstructed full-pipeline total, which
+# the test factories cannot faithfully reproduce (their defaults differ
+# from the real run's persisted sub-scores).
+def _xdc_like(atr_pct_7d: float) -> tuple[MarketMetrics, AssetIndicators]:
+    m = _metrics(
+        symbol="XDC",
+        volume_24h_usd=998_021.0,
+        volume_7d_avg_usd=1_402_019.0,
+        volume_ratio_20d=0.955,
+        return_3d=0.0444,
+        return_7d=0.0664,
+        return_vs_btc_7d=0.08,
+        dist_from_7d_high=-0.1232,
+        dist_from_20d_high=-0.1232,
+        spread_pct=0.0319,
+        atr_pct_7d=atr_pct_7d,
+    )
+    ind = _indicator(
+        symbol="XDC",
+        rsi_14=46.22,
+        atr_14_pct=atr_pct_7d,
+        trend_state="up",
+        ema_alignment="partial_bullish",
+        vwap_state="below",
+        price_vs_ema20_pct=-2.3434,
+    )
+    return m, ind
+
+
+def test_xdc_soft_band_promotes_low_score_to_watchlist() -> None:
+    """Motivating evidence-backed regression.
+
+    For XDC's otherwise-fixed profile, the *only* variable is ATR. Just
+    below the soft band (3.49%) it categorises low_score; inside the band
+    (XDC's real 3.82%) it crosses the watchlist floor. This pins the PR's
+    causal claim and its guardrail (never reaches a tradeable category).
+    """
+    m_real, ind_real = _xdc_like(atr_pct_7d=3.82)
+    bd_real = score_asset(m_real, ind_real, _DEFAULT_CFG)
+
+    m_below, ind_below = _xdc_like(atr_pct_7d=3.49)
+    bd_below = score_asset(m_below, ind_below, _DEFAULT_CFG)
+
+    # The soft band is worth exactly the documented +3 (volatility 1 → 4);
+    # no other factor moves when ATR is the only changed input.
+    assert bd_real.score_volatility - bd_below.score_volatility == pytest.approx(3.0)
+    assert bd_real.score_total - bd_below.score_total == pytest.approx(3.0, abs=0.01)
+
+    # The tier transition straddles the band: low_score → watchlist.
+    assert bd_below.category == "low_score"
+    assert bd_below.score_total < _DEFAULT_CFG.watchlist_min_score
+    assert bd_real.category == "watchlist"
+    assert bd_real.score_total >= _DEFAULT_CFG.watchlist_min_score
+
+    # Guardrail: the change must NOT manufacture a tradeable candidate.
+    assert bd_real.category not in ("clean", "ugly")
+    assert bd_real.score_total < _DEFAULT_CFG.ugly_min_score
+
+
 # ── _score_structure ──────────────────────────────────────────────────────────
 
 
