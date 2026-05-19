@@ -40,7 +40,7 @@ Each factor returns a float clamped to its maximum. Inputs are `MarketMetrics` (
 | 1 | `score_liquidity` | 20 | 24h $vol tier (8) + 7d avg $vol tier (8) + spread proxy (4) |
 | 2 | `score_upside` | 15 | Distance from 7d high (6) + RSI zone (5) + 7d return (4) |
 | 3 | `score_structure` | 15 | 4h trend (6) + 4h EMA alignment (5) + 4h VWAP (2) + 1h confluence (2) |
-| 4 | `score_volatility` | 10 | ATR % sweet spot: 6–12% = max 10; degrades outside |
+| 4 | `score_volatility` | 10 | ATR % sweet spot: 6–12% = max 10; 4–6%→7, 3.5–4%→4 (soft band), <3.5%/>30%→1 |
 | 5 | `score_rel_strength` | 10 | `return_vs_btc_7d` tiers; falls back to absolute `return_7d` if no BTC |
 | 6 | `score_volume` | 10 | `volume_ratio_20d` tiers (6) + last 4h candle vs MA20 (4) |
 | 7 | `score_catalyst` | 10 | 3d return tier (5) + VWAP-reclaim setup (3) + approach to 7d high (2) |
