@@ -24,6 +24,7 @@ export function MomentumLogo({
       width={size}
       height={size}
       priority
+      unoptimized
       className={cn("shrink-0", className)}
     />
   );
