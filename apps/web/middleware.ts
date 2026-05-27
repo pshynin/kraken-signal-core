@@ -46,7 +46,8 @@ export const config = {
      *   /_next/static    — Next.js build assets
      *   /_next/image     — Next.js image optimisation
      *   /favicon.ico     — browser favicon
+     *   *.png/jpg/svg/…  — static assets served from /public
      */
-    "/((?!login|api/auth|_next/static|_next/image|favicon\\.ico).*)",
+    "/((?!login|api/auth|_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|avif)$).*)",
   ],
 };
