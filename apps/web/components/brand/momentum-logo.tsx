@@ -9,8 +9,8 @@ interface MomentumLogoProps {
 
 /**
  * Momentum Copilot brand mark. Renders the canonical PNG from
- * `public/momentum-icon.png` — the same source the Next metadata
- * route `app/icon.png` uses for the browser-tab favicon.
+ * `public/icon.png` — the same source declared as the favicon
+ * via `metadata.icons` in `app/layout.tsx`.
  */
 export function MomentumLogo({
   className,
@@ -19,7 +19,7 @@ export function MomentumLogo({
 }: MomentumLogoProps) {
   return (
     <Image
-      src="/momentum-icon.png"
+      src="/icon.png"
       alt={title}
       width={size}
       height={size}

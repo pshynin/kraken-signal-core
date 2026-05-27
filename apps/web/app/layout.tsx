@@ -19,6 +19,7 @@ export const metadata: Metadata = {
   },
   description: "Kraken Spot Scanner — Decision Support System",
   applicationName: "Momentum Copilot",
+  icons: { icon: "/icon.png" },
 };
 
 export const viewport: Viewport = {
