@@ -155,15 +155,20 @@ def _fmt_price(price: float) -> str:
 def _format_header(category: str, count: int, when_utc: datetime) -> str:
     """Build the single-line alert header.
 
-    Example: '🟡 Ugly Candidates — 4 (5/14/26, 3:15 AM)'
-    Timestamp is formatted in UTC; locale-style M/D/YY plus 12-hour clock.
+    Example: '🟡 Ugly Candidates — 4 (<t:1747192500:R>)'
+    The timestamp uses Discord's native <t:UNIX:R> markdown, which renders
+    as a relative "N minutes/hours ago" string. The scanner runs on a UTC
+    CI runner and cannot know each reader's timezone; emitting a raw Unix
+    instant lets every Discord client compute the elapsed time locally.
+    Discord's own message header already carries the absolute date, so a
+    relative stamp reads naturally alongside it.
     """
     is_clean = category == "clean"
     emoji = "🟢" if is_clean else "🟡"
     label = "Clean" if is_clean else "Ugly"
-    # %-prefixed format specifiers strip zero-padding from numeric fields
-    # so "05/14/26" renders as "5/14/26" — matching the locked design.
-    stamp = when_utc.strftime("%-m/%-d/%y, %-I:%M %p")
+    # Discord renders <t:UNIX:R> as a relative "N hours ago" string.
+    # int() floors to whole seconds, which Discord expects.
+    stamp = f"<t:{int(when_utc.timestamp())}:R>"
     return f"{emoji} {label} Candidates — {count} ({stamp})"
 
 
