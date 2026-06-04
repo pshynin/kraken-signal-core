@@ -384,7 +384,7 @@ def test_format_stacked_messages_header_ugly_emoji_and_label() -> None:
 def test_format_stacked_messages_header_includes_timestamp() -> None:
     msgs = format_stacked_messages([_candidate("BTC", "clean", 1)], "clean", _when())
     first_line = msgs[0].splitlines()[0]
-    assert "(5/14/26, 3:15 AM)" in first_line
+    assert "(<t:1778728500:R>)" in first_line
 
 
 def test_format_stacked_messages_contains_all_symbols() -> None:
@@ -569,7 +569,7 @@ def _make_useless() -> ScoredCandidate:
 
 
 _GOLDEN_BODY = (
-    "🟡 Ugly Candidates — 2 (5/14/26, 3:15 AM)\n"
+    "🟡 Ugly Candidates — 2 (<t:1778728500:R>)\n"
     "\n"
     "#1 INJ • Prob 77% • Size 2k-5k\n"
     "• Entry:  4.8883 (Max 4.9620)\n"
