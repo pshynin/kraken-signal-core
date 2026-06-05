@@ -10,7 +10,7 @@ INSERT INTO strategy_settings (setting_key, setting_value, description) VALUES
 
   -- ── Global hard-exclusion thresholds ────────────────────────────────────────
   ('global.rsi_hard_min',
-   '48',
+   '42',
    'RSI below this threshold → hard exclude asset regardless of category'),
 
   ('global.rsi_hard_max',

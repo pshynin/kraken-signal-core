@@ -27,7 +27,7 @@ Exclusion reasons (for HardFilterResult.exclusion_reason):
     invalid_price           — price_usd <= 0
     insufficient_volume_24h — volume_24h_usd < 300,000
     insufficient_volume_7d  — volume_7d_avg_usd < 750,000
-    rsi_below_hard_min      — rsi_14 < 48   (global.rsi_hard_min)
+    rsi_below_hard_min      — rsi_14 < 42   (global.rsi_hard_min)
     rsi_above_hard_max      — rsi_14 > 78   (global.rsi_hard_max)
     extreme_pump_3d         — return_3d > 40% (anti-chase; ugly.max_return_3d)
     overextended_vs_ema20   — price_vs_ema20_pct > 20% (anti-chase; ugly threshold)
@@ -70,7 +70,7 @@ class HardFilterConfig:
     min_volume_7d_avg_usd: float = 750_000.0
     """ugly.min_volume_7d_avg_usd — most permissive 7d average volume floor."""
 
-    rsi_hard_min: float = 48.0
+    rsi_hard_min: float = 42.0
     """global.rsi_hard_min — hard RSI lower bound."""
 
     rsi_hard_max: float = 78.0

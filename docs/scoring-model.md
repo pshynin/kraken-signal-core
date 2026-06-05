@@ -29,7 +29,7 @@ Before scoring runs, `filter.py` applies hard-exclusion rules. These use the **m
 | `atr_pct_7d > ugly.max_atr_pct` | `excessive_volatility` |
 | Indicator computation failed | `no_indicator` |
 
-Defaults match the migration 0012 seed: `min_volume_24h=$300k`, `min_volume_7d=$750k`, `rsi_hard=[48, 78]`, `max_return_3d=40%`, `max_price_vs_ema20=20%`, `atr ∈ [2.5%, 30%]`.
+Defaults match the migration 0012 seed: `min_volume_24h=$300k`, `min_volume_7d=$750k`, `rsi_hard=[42, 78]`, `max_return_3d=40%`, `max_price_vs_ema20=20%`, `atr ∈ [2.5%, 30%]`.
 
 ## The 9 Factors
 

@@ -37,7 +37,7 @@ def _client(rows: list[dict] | None = None) -> MagicMock:
 def _seed_rows() -> list[dict]:
     """A representative subset of migration 0012 seed rows."""
     return [
-        {"setting_key": "global.rsi_hard_min", "setting_value": "48"},
+        {"setting_key": "global.rsi_hard_min", "setting_value": "42"},
         {"setting_key": "global.rsi_hard_max", "setting_value": "78"},
         {"setting_key": "clean.min_score", "setting_value": "70"},
         {"setting_key": "clean.min_volume_7d_avg_usd", "setting_value": "5000000"},
@@ -70,7 +70,7 @@ def test_default_settings_returns_strategy_settings_instance() -> None:
 
 
 def test_default_settings_rsi_hard_min_matches_migration() -> None:
-    assert default_settings().rsi_hard_min == 48.0
+    assert default_settings().rsi_hard_min == 42.0
 
 
 def test_default_settings_ugly_volume_24h_matches_migration() -> None:
@@ -92,7 +92,7 @@ def test_parse_settings_dict_falls_back_on_empty() -> None:
 
 def test_parse_settings_dict_handles_invalid_float_gracefully() -> None:
     s = _parse_settings_dict({"global.rsi_hard_min": "NOT_A_NUMBER"})
-    assert s.rsi_hard_min == 48.0  # falls back to default
+    assert s.rsi_hard_min == 42.0  # falls back to default
 
 
 def test_parse_settings_dict_parses_int_as_float_string() -> None:
@@ -124,7 +124,7 @@ def test_parse_prob_map_fallback_on_invalid_json() -> None:
 def test_load_strategy_settings_parses_db_rows() -> None:
     client = _client(_seed_rows())
     s = load_strategy_settings(client)
-    assert s.rsi_hard_min == 48.0
+    assert s.rsi_hard_min == 42.0
     assert s.clean_min_score == 70.0
     assert s.ugly_min_volume_7d_avg_usd == 750_000.0
 

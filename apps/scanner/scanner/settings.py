@@ -59,7 +59,7 @@ class StrategySettings:
     """
 
     # ── Global hard-exclusion ─────────────────────────────────────────────────
-    rsi_hard_min: float = 48.0
+    rsi_hard_min: float = 42.0
     """global.rsi_hard_min — RSI below this → hard exclude asset."""
     rsi_hard_max: float = 78.0
     """global.rsi_hard_max — RSI above this → hard exclude asset."""
@@ -259,7 +259,7 @@ def _parse_prob_map(raw: dict[str, str]) -> tuple[tuple[float, float], ...]:
 def _parse_settings_dict(raw: dict[str, str]) -> StrategySettings:
     """Build StrategySettings from a {setting_key: setting_value} dict."""
     return StrategySettings(
-        rsi_hard_min=_f(raw, "global.rsi_hard_min", 48.0),
+        rsi_hard_min=_f(raw, "global.rsi_hard_min", 42.0),
         rsi_hard_max=_f(raw, "global.rsi_hard_max", 78.0),
         clean_min_score=_f(raw, "clean.min_score", 70.0),
         clean_min_volume_7d_avg_usd=_f(raw, "clean.min_volume_7d_avg_usd", 5_000_000.0),
