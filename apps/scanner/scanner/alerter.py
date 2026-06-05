@@ -112,25 +112,56 @@ def load_alert_config(strategy: StrategySettings | None = None) -> AlertConfig |
     )
 
 
+# ── Alert item (candidate + recency status) ───────────────────────────────────
+
+
+@dataclass(frozen=True)
+class AlertItem:
+    """A candidate paired with its recency status, ready for rendering.
+
+    `is_update` is True when the candidate belongs in the 'Updated' section
+    (it was alerted recently); False puts it in the 'New' section.
+
+    `delta_pct` is the spot-price move since the last alert
+    ((current − prior) / prior × 100), shown as a ▲/▼ badge on Updated coins.
+    It is None for New coins and for Updated coins with no recoverable prior
+    spot — those render without a delta and sort to the bottom of Updated.
+    """
+
+    candidate: ScoredCandidate
+    is_update: bool = False
+    delta_pct: float | None = None
+
+
 # ── Stacked alert formatting (mobile-first) ───────────────────────────────────
 #
-# Each candidate renders as a four-line block:
+# Each channel message keeps its Clean/Ugly header, then nests up to two
+# plain-text sections — New and Updated — each holding four-line blocks:
 #
+#   🟢 Clean Candidates — 2 (<t:…:R>)
+#
+#   New — 1
 #   #1 INJ • Prob 77% • Size 2k-5k
 #   • Entry:  4.8883 (Max 4.9620)
 #   • Exit:   6.3487 (Profit +30%)
 #   • Stop:   4.3385 (Risk -11%)
 #
-# Title line: rank, ticker, probability, size bucket (separated by bullets).
-# Field lines: bullet-prefixed label-then-value pairs, with Profit and Risk
-# inline on the Exit and Stop lines. Profit and Risk percentages are derived
-# from preferred_entry / exit_price / stop_loss (geometry), not from
-# tp.expected_gain_pct.
+#   Updated — 1
+#   #1 ETH ▲3.2% • Prob 70% • Size 5k-10k
+#   • Entry:  3200.0 (Max 3250.0)
+#   • Exit:   3800.0 (Profit +19%)
+#   • Stop:   3000.0 (Risk -6%)
 #
-# Blocks are separated by a blank line. The full body sits inside a Discord
-# embed (`description` field) so we get a category-colour sidebar without
-# forcing horizontal scrolling on mobile. No code-block table; no extra
-# bot/product signature.
+# Title line: rank, ticker, optional ▲/▼ delta (Updated only), probability,
+# size bucket (separated by bullets). Field lines: bullet-prefixed label-value
+# pairs, with Profit and Risk inline on the Exit and Stop lines. Profit and
+# Risk percentages are derived from preferred_entry / exit_price / stop_loss
+# (geometry), not from tp.expected_gain_pct.
+#
+# Empty sections are omitted. Blocks are separated by a blank line. The full
+# body sits inside a Discord embed (`description` field) for the category-colour
+# sidebar without forcing horizontal scrolling on mobile. No code-block table;
+# no extra bot/product signature.
 
 
 def _fmt_price(price: float) -> str:
@@ -150,6 +181,16 @@ def _fmt_price(price: float) -> str:
     if price >= 0.0001:
         return f"{price:.7f}"
     return f"{price:.2e}"
+
+
+def _format_delta(pct: float) -> str:
+    """Render a spot-price move as a ▲/▼ badge with one decimal.
+
+    `▲` is used for any non-negative move (including exactly 0.0%), `▼` for a
+    negative move. The sign is carried by the arrow, so the number is absolute.
+    """
+    arrow = "▲" if pct >= 0 else "▼"
+    return f"{arrow}{abs(pct):.1f}%"
 
 
 def _format_header(category: str, count: int, when_utc: datetime) -> str:
@@ -172,14 +213,19 @@ def _format_header(category: str, count: int, when_utc: datetime) -> str:
     return f"{emoji} {label} Candidates — {count} ({stamp})"
 
 
-def _format_candidate_block(rank: int, candidate: ScoredCandidate) -> str:
+def _format_candidate_block(
+    rank: int, candidate: ScoredCandidate, delta_pct: float | None = None
+) -> str:
     """Build one four-line stacked block for a candidate.
 
     Layout:
-        #R SYM • Prob P% • Size BUCKET
+        #R SYM [▲/▼D.D%] • Prob P% • Size BUCKET
         • Entry:  <preferred> (Max <max>)
         • Exit:   <exit> (Profit +X%)
         • Stop:   <stop> (Risk -X%)
+
+    `delta_pct` renders a ▲/▼ spot-move badge after the ticker (Updated coins
+    only); when None the ticker is followed directly by the bullet separator.
 
     Profit % and Risk % are derived from preferred_entry / exit_price /
     stop_loss (geometry) so they cannot drift from the Entry/Exit/Stop
@@ -207,8 +253,9 @@ def _format_candidate_block(rank: int, candidate: ScoredCandidate) -> str:
     profit_pct = round((tp.exit_price - entry) / entry * 100)
     risk_pct = round((tp.stop_loss - entry) / entry * 100)
 
+    delta_str = f" {_format_delta(delta_pct)}" if delta_pct is not None else ""
     title = (
-        f"#{rank} {candidate.symbol} • "
+        f"#{rank} {candidate.symbol}{delta_str} • "
         f"Prob {round(score.probability_pct)}% • "
         f"Size {tp.suggested_size_bucket}"
     )
@@ -219,42 +266,74 @@ def _format_candidate_block(rank: int, candidate: ScoredCandidate) -> str:
 
 
 def format_stacked_messages(
-    candidates: list[ScoredCandidate],
+    items: list[AlertItem],
     category: str,
     when_utc: datetime,
 ) -> list[str]:
-    """Format candidates as one or more stacked-text message bodies.
+    """Format alert items as one or more stacked-text message bodies.
 
-    Each returned string is the embed `description` body: a single-line
-    header followed by per-candidate stacked blocks separated by blank
-    lines. Splits between candidate blocks (never mid-block) when the
-    body would exceed _DISCORD_MAX_CHARS.
+    Each returned string is the embed `description` body: the Clean/Ugly
+    header, then a 'New — X' section and/or an 'Updated — Y' section, each
+    holding per-candidate stacked blocks separated by blank lines. Empty
+    sections are omitted entirely.
+
+    New coins keep their incoming (rank) order. Updated coins are sorted by
+    spot-price delta descending; coins with no recoverable delta sort to the
+    bottom of the Updated section and render without a ▲/▼ badge. Ranks restart
+    at #1 within each section.
+
+    Splits between candidate blocks (never mid-block) when the body would
+    exceed _DISCORD_MAX_CHARS; a section header is glued to its first block so
+    a split never orphans a header.
 
     Args:
-        candidates: Non-deduped candidates to include, in rank order.
-        category:   'clean' or 'ugly'.
-        when_utc:   UTC datetime used in the header timestamp.
+        items:    Candidates with recency status, for one channel/category.
+        category: 'clean' or 'ugly'.
+        when_utc: UTC datetime used in the header timestamp.
 
     Returns:
         List of body strings, each safe to embed in a Discord webhook POST.
     """
-    blocks = [_format_candidate_block(i + 1, c) for i, c in enumerate(candidates)]
-    n = len(candidates)
+    if not items:
+        return []
+
+    new_items = [it for it in items if not it.is_update]
+    # Delta descending; None deltas (no baseline) pushed to the bottom.
+    updated_items = sorted(
+        (it for it in items if it.is_update),
+        key=lambda it: (it.delta_pct is None, -(it.delta_pct or 0.0)),
+    )
+
+    header = _format_header(category, len(items), when_utc)
+
+    sections: list[tuple[str, list[str]]] = []
+    if new_items:
+        blocks = [_format_candidate_block(i + 1, it.candidate) for i, it in enumerate(new_items)]
+        sections.append((f"New — {len(new_items)}", blocks))
+    if updated_items:
+        blocks = [
+            _format_candidate_block(i + 1, it.candidate, it.delta_pct)
+            for i, it in enumerate(updated_items)
+        ]
+        sections.append((f"Updated — {len(updated_items)}", blocks))
+
+    # Flatten to parts: each section title is glued to its first block (so a
+    # split can't orphan a header); later blocks are standalone parts.
+    parts: list[str] = []
+    for title, blocks in sections:
+        parts.append(f"{title}\n{blocks[0]}")
+        parts.extend(blocks[1:])
 
     def _build(subset: list[str]) -> str:
-        header = _format_header(category, n, when_utc)
         return header + "\n\n" + "\n\n".join(subset)
-
-    if not blocks:
-        return []
 
     messages: list[str] = []
     chunk: list[str] = []
-    for block in blocks:
-        candidate_chunk = chunk + [block]
+    for part in parts:
+        candidate_chunk = chunk + [part]
         if len(_build(candidate_chunk)) > _DISCORD_MAX_CHARS and chunk:
             messages.append(_build(chunk))
-            chunk = [block]
+            chunk = [part]
         else:
             chunk = candidate_chunk
     if chunk:
@@ -481,7 +560,8 @@ def run_alerter(
             return 0
 
         category = to_alert[0][0].category
-        bodies = format_stacked_messages([c for c, _ in to_alert], category, when_utc)
+        items = [AlertItem(candidate=c) for c, _ in to_alert]
+        bodies = format_stacked_messages(items, category, when_utc)
         payloads = [build_embed_payload(body, category) for body in bodies]
         # alerts_sent.payload captures the first message (representative of
         # the batch). Splits are an implementation detail of Discord's

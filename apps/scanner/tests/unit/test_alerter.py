@@ -18,7 +18,9 @@ from scanner.alerter import (
     _COLOR_UGLY,
     _DISCORD_MAX_CHARS,
     AlertConfig,
+    AlertItem,
     _format_candidate_block,
+    _format_delta,
     _is_already_alerted,
     _post_to_webhook,
     build_embed_payload,
@@ -145,6 +147,19 @@ def _candidate(symbol: str = "BTC", category: str = "clean", rank: int = 1) -> S
         trade=_trade(symbol),
         market=_metrics(symbol),
         indicators=_indicator(symbol),
+    )
+
+
+def _item(
+    candidate: ScoredCandidate | None = None,
+    *,
+    is_update: bool = False,
+    delta_pct: float | None = None,
+) -> AlertItem:
+    return AlertItem(
+        candidate=candidate or _candidate(),
+        is_update=is_update,
+        delta_pct=delta_pct,
     )
 
 
@@ -370,34 +385,34 @@ def _when() -> datetime:
 
 
 def test_format_stacked_messages_header_clean_emoji_and_label() -> None:
-    msgs = format_stacked_messages([_candidate("BTC", "clean", 1)], "clean", _when())
+    msgs = format_stacked_messages([_item(_candidate("BTC", "clean", 1))], "clean", _when())
     first_line = msgs[0].splitlines()[0]
     assert first_line.startswith("🟢 Clean Candidates — 1")
 
 
 def test_format_stacked_messages_header_ugly_emoji_and_label() -> None:
-    msgs = format_stacked_messages([_candidate("ETH", "ugly", 1)], "ugly", _when())
+    msgs = format_stacked_messages([_item(_candidate("ETH", "ugly", 1))], "ugly", _when())
     first_line = msgs[0].splitlines()[0]
     assert first_line.startswith("🟡 Ugly Candidates — 1")
 
 
 def test_format_stacked_messages_header_includes_timestamp() -> None:
-    msgs = format_stacked_messages([_candidate("BTC", "clean", 1)], "clean", _when())
+    msgs = format_stacked_messages([_item(_candidate("BTC", "clean", 1))], "clean", _when())
     first_line = msgs[0].splitlines()[0]
     assert "(<t:1778728500:R>)" in first_line
 
 
 def test_format_stacked_messages_contains_all_symbols() -> None:
-    candidates = [_candidate("BTC", "clean", 1), _candidate("ETH", "clean", 2)]
-    msgs = format_stacked_messages(candidates, "clean", _when())
+    items = [_item(_candidate("BTC", "clean", 1)), _item(_candidate("ETH", "clean", 2))]
+    msgs = format_stacked_messages(items, "clean", _when())
     combined = "".join(msgs)
     assert "#1 BTC" in combined
     assert "#2 ETH" in combined
 
 
 def test_format_stacked_messages_under_discord_limit() -> None:
-    candidates = [_candidate(f"C{i}", "clean", i + 1) for i in range(10)]
-    msgs = format_stacked_messages(candidates, "clean", _when())
+    items = [_item(_candidate(f"C{i}", "clean", i + 1)) for i in range(10)]
+    msgs = format_stacked_messages(items, "clean", _when())
     for msg in msgs:
         assert len(msg) <= _DISCORD_MAX_CHARS
 
@@ -414,8 +429,8 @@ def test_format_stacked_messages_splits_between_candidates() -> None:
     original = alerter_mod._DISCORD_MAX_CHARS
     try:
         alerter_mod._DISCORD_MAX_CHARS = 300
-        candidates = [_candidate(f"T{i}", "clean", i + 1) for i in range(5)]
-        msgs = format_stacked_messages(candidates, "clean", _when())
+        items = [_item(_candidate(f"T{i}", "clean", i + 1)) for i in range(5)]
+        msgs = format_stacked_messages(items, "clean", _when())
         assert len(msgs) > 1
         # Each message must end with a Stop line (the last line of a block).
         for msg in msgs:
@@ -571,6 +586,7 @@ def _make_useless() -> ScoredCandidate:
 _GOLDEN_BODY = (
     "🟡 Ugly Candidates — 2 (<t:1778728500:R>)\n"
     "\n"
+    "New — 2\n"
     "#1 INJ • Prob 77% • Size 2k-5k\n"
     "• Entry:  4.8883 (Max 4.9620)\n"
     "• Exit:   6.3487 (Profit +30%)\n"
@@ -584,9 +600,84 @@ _GOLDEN_BODY = (
 
 
 def test_format_stacked_messages_matches_golden_output() -> None:
-    msgs = format_stacked_messages([_make_inj(), _make_useless()], "ugly", _when())
+    msgs = format_stacked_messages([_item(_make_inj()), _item(_make_useless())], "ugly", _when())
     assert len(msgs) == 1
     assert msgs[0] == _GOLDEN_BODY
+
+
+# ── New / Updated sections + delta ───────────────────────────────────────────
+
+
+def test_format_delta_up_arrow_for_positive() -> None:
+    assert _format_delta(3.24) == "▲3.2%"
+
+
+def test_format_delta_down_arrow_for_negative() -> None:
+    assert _format_delta(-1.15) == "▼1.1%"
+
+
+def test_format_delta_zero_is_up_arrow() -> None:
+    assert _format_delta(0.0) == "▲0.0%"
+
+
+def test_updated_item_renders_delta_on_title() -> None:
+    items = [_item(_candidate("ETH", "clean", 1), is_update=True, delta_pct=3.2)]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "Updated — 1" in body
+    assert "#1 ETH ▲3.2% •" in body
+
+
+def test_new_item_has_no_delta() -> None:
+    items = [_item(_candidate("BTC", "clean", 1))]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "New — 1" in body
+    assert "▲" not in body
+    assert "▼" not in body
+
+
+def test_new_and_updated_sections_both_present() -> None:
+    items = [
+        _item(_candidate("BTC", "clean", 1)),
+        _item(_candidate("ETH", "clean", 2), is_update=True, delta_pct=1.0),
+    ]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "New — 1" in body
+    assert "Updated — 1" in body
+    # Top header counts New + Updated together.
+    assert body.splitlines()[0].startswith("🟢 Clean Candidates — 2")
+
+
+def test_empty_new_section_omitted_when_only_updates() -> None:
+    items = [_item(_candidate("ETH", "clean", 1), is_update=True, delta_pct=2.0)]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "New —" not in body
+    assert "Updated — 1" in body
+
+
+def test_updated_sorted_by_delta_descending() -> None:
+    items = [
+        _item(_candidate("AAA", "clean", 1), is_update=True, delta_pct=1.0),
+        _item(_candidate("BBB", "clean", 2), is_update=True, delta_pct=5.0),
+        _item(_candidate("CCC", "clean", 3), is_update=True, delta_pct=-2.0),
+    ]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    # Biggest positive first, most negative last.
+    assert body.index("BBB") < body.index("AAA") < body.index("CCC")
+
+
+def test_updated_without_baseline_sorts_last_and_omits_delta() -> None:
+    items = [
+        _item(_candidate("AAA", "clean", 1), is_update=True, delta_pct=2.0),
+        _item(_candidate("NOBASE", "clean", 2), is_update=True, delta_pct=None),
+        _item(_candidate("CCC", "clean", 3), is_update=True, delta_pct=-1.0),
+    ]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    # No-baseline coin sorts to the bottom of Updated.
+    assert body.index("AAA") < body.index("CCC") < body.index("NOBASE")
+    # ...and its title carries no ▲/▼ badge.
+    nobase_title = next(ln for ln in body.splitlines() if "NOBASE" in ln)
+    assert "▲" not in nobase_title
+    assert "▼" not in nobase_title
 
 
 # ── build_embed_payload ─────────────────────────────────────────────────────
