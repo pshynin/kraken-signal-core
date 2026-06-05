@@ -10,7 +10,7 @@ INSERT INTO strategy_settings (setting_key, setting_value, description) VALUES
 
   -- ── Global hard-exclusion thresholds ────────────────────────────────────────
   ('global.rsi_hard_min',
-   '48',
+   '42',
    'RSI below this threshold → hard exclude asset regardless of category'),
 
   ('global.rsi_hard_max',
@@ -138,7 +138,7 @@ INSERT INTO strategy_settings (setting_key, setting_value, description) VALUES
 
   ('scanner.alert_dedup_hours',
    '8',
-   'Hours before the same asset + alert_type can be re-alerted'),
+   'Recency window (hours) for New vs Updated alerts: a coin alerted within this window shows as Updated (with a price delta since its last alert); otherwise New. Does not suppress alerts.'),
 
   ('scanner.stale_run_threshold_hours',
    '6',

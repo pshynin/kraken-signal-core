@@ -155,7 +155,7 @@ def test_apply_filter_rejects_insufficient_volume_7d() -> None:
 
 def test_apply_filter_rejects_rsi_below_hard_min() -> None:
     m = _good_metrics()
-    result = apply_hard_filter(m, _indicator(rsi_14=45.0), _DEFAULT_CONFIG)
+    result = apply_hard_filter(m, _indicator(rsi_14=40.0), _DEFAULT_CONFIG)
     assert result.exclusion_reason == "rsi_below_hard_min"
 
 
@@ -232,7 +232,7 @@ def test_run_hard_filter_partial_exclusion() -> None:
     bundles = [_bundle("BTC"), _bundle("SOL"), _bundle("ETH")]
     inds = [
         _indicator("BTC"),
-        _indicator("SOL", rsi_14=30.0),  # below rsi_hard_min=48
+        _indicator("SOL", rsi_14=30.0),  # below rsi_hard_min=42
         _indicator("ETH"),
     ]
     result = run_hard_filter(bundles, inds)

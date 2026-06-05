@@ -18,9 +18,12 @@ from scanner.alerter import (
     _COLOR_UGLY,
     _DISCORD_MAX_CHARS,
     AlertConfig,
+    AlertItem,
     _format_candidate_block,
-    _is_already_alerted,
+    _format_delta,
+    _last_alert_run_id,
     _post_to_webhook,
+    _run_spot,
     build_embed_payload,
     format_stacked_messages,
     load_alert_config,
@@ -148,42 +151,94 @@ def _candidate(symbol: str = "BTC", category: str = "clean", rank: int = 1) -> S
     )
 
 
-def _client(dedup_data: list[dict] | None = None) -> MagicMock:
-    """Build a MagicMock client covering all alerter DB call chains."""
+def _item(
+    candidate: ScoredCandidate | None = None,
+    *,
+    is_update: bool = False,
+    delta_pct: float | None = None,
+) -> AlertItem:
+    return AlertItem(
+        candidate=candidate or _candidate(),
+        is_update=is_update,
+        delta_pct=delta_pct,
+    )
+
+
+def _client(
+    *,
+    last_alert_run_id: str | None = None,
+    baseline_spot: float | None = None,
+) -> MagicMock:
+    """Build a MagicMock client covering all alerter DB call chains.
+
+    Tables are dispatched by name (``client.table.side_effect``) so the
+    alerts_sent recency lookup and the market_snapshots spot lookup return
+    independent responses.
+
+    last_alert_run_id: scan_run_id returned by the recency lookup; None means
+        the asset is 'New', a value means 'Updated' (baseline = that run).
+    baseline_spot:     price_usd returned by the market_snapshots lookup;
+        None means no baseline → Updated coin renders without a delta.
+    """
     client = MagicMock()
-    table = client.table.return_value
+    tables: dict[str, MagicMock] = {}
 
-    # Dedup SELECT chain: .select().eq().eq().eq().gte().execute()
-    dedup_resp = MagicMock()
-    dedup_resp.data = dedup_data or []
+    def _table(name: str) -> MagicMock:
+        if name in tables:
+            return tables[name]
+        t = MagicMock()
+        # INSERT (alerts_sent + asset_state_history)
+        t.insert.return_value.execute.return_value = MagicMock(data=[{"id": "row-uuid"}])
+        # UPDATE (candidate_recommendations.state)
+        t.update.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock(
+            data=[]
+        )
+        tables[name] = t
+        return t
+
+    client.table.side_effect = _table
+
+    # alerts_sent recency lookup:
+    #   select().eq().eq().eq().gte().order().limit().execute()
+    alerts = _table("alerts_sent")
+    last_resp = MagicMock()
+    last_resp.data = [{"scan_run_id": last_alert_run_id}] if last_alert_run_id else []
     (
-        table.select.return_value.eq.return_value.eq.return_value.eq.return_value.gte.return_value.execute.return_value
-    ) = dedup_resp
+        alerts.select.return_value.eq.return_value.eq.return_value.eq.return_value.gte.return_value.order.return_value.limit.return_value.execute.return_value
+    ) = last_resp
 
-    # INSERT (alerts_sent + asset_state_history)
-    insert_resp = MagicMock()
-    insert_resp.data = [{"id": "alert-uuid"}]
-    table.insert.return_value.execute.return_value = insert_resp
-
-    # UPDATE (candidate_recommendations.state)
-    update_resp = MagicMock()
-    update_resp.data = []
-    table.update.return_value.eq.return_value.eq.return_value.execute.return_value = update_resp
+    # market_snapshots spot lookup: select().eq().eq().limit().execute()
+    msnap = _table("market_snapshots")
+    spot_resp = MagicMock()
+    spot_resp.data = [{"price_usd": baseline_spot}] if baseline_spot is not None else []
+    (
+        msnap.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value
+    ) = spot_resp
 
     return client
 
 
-# ── _is_already_alerted ───────────────────────────────────────────────────────
+# ── _last_alert_run_id / _run_spot ────────────────────────────────────────────
 
 
-def test_is_already_alerted_returns_true_when_data() -> None:
-    client = _client(dedup_data=[{"id": "existing-alert"}])
-    assert _is_already_alerted(client, "uuid-btc", "2026-01-01T00:00:00Z") is True
+def test_last_alert_run_id_returns_run_when_present() -> None:
+    client = _client(last_alert_run_id="run-xyz")
+    assert _last_alert_run_id(client, "uuid-btc", "2026-01-01T00:00:00Z") == "run-xyz"
 
 
-def test_is_already_alerted_returns_false_when_empty() -> None:
-    client = _client(dedup_data=[])
-    assert _is_already_alerted(client, "uuid-btc", "2026-01-01T00:00:00Z") is False
+def test_last_alert_run_id_returns_none_when_empty() -> None:
+    client = _client()
+    assert _last_alert_run_id(client, "uuid-btc", "2026-01-01T00:00:00Z") is None
+
+
+def test_run_spot_returns_price_when_present() -> None:
+    client = _client(baseline_spot=123.45)
+    assert _run_spot(client, "run-xyz", "uuid-btc") == 123.45
+
+
+def test_run_spot_returns_none_when_missing() -> None:
+    client = _client()
+    assert _run_spot(client, "run-xyz", "uuid-btc") is None
 
 
 # ── _post_to_webhook ──────────────────────────────────────────────────────────
@@ -303,13 +358,33 @@ def test_run_alerter_posts_to_ugly_webhook() -> None:
     assert "ugly" in called_url
 
 
-def test_run_alerter_skips_deduped_asset() -> None:
-    client = _client(dedup_data=[{"id": "prior-alert"}])
+def test_run_alerter_emits_recent_asset_as_updated() -> None:
+    """A coin alerted within the recency window is NOT suppressed — it is
+    re-emitted as Updated with a ▲/▼ delta vs its last alert's spot."""
+    # current_price for the default candidate is 51_000; baseline 50_000 → +2.0%
+    client = _client(last_alert_run_id="prior-run", baseline_spot=50_000.0)
     sel = SelectionResult(clean=[_candidate("BTC", "clean")])
     with patch("scanner.alerter._post_to_webhook") as mock_post:
         count = run_alerter(client, "run-id", {"BTC": "uuid-btc"}, sel, _CFG)
-    mock_post.assert_not_called()
-    assert count == 0
+    mock_post.assert_called_once()
+    assert count == 1
+    body = mock_post.call_args[0][1]["embeds"][0]["description"]
+    assert "Updated — 1" in body
+    assert "BTC ▲2.0%" in body
+
+
+def test_run_alerter_updated_without_baseline_omits_delta() -> None:
+    """Recent coin with no recoverable baseline spot is still emitted as
+    Updated, but without a delta badge."""
+    client = _client(last_alert_run_id="prior-run", baseline_spot=None)
+    sel = SelectionResult(clean=[_candidate("BTC", "clean")])
+    with patch("scanner.alerter._post_to_webhook") as mock_post:
+        count = run_alerter(client, "run-id", {"BTC": "uuid-btc"}, sel, _CFG)
+    assert count == 1
+    body = mock_post.call_args[0][1]["embeds"][0]["description"]
+    assert "Updated — 1" in body
+    assert "▲" not in body
+    assert "▼" not in body
 
 
 def test_run_alerter_records_alerts_sent_on_success() -> None:
@@ -329,7 +404,7 @@ def test_run_alerter_records_failed_status_on_webhook_error() -> None:
         count = run_alerter(client, "run-id", {"BTC": "uuid-btc"}, sel, _CFG)
     assert count == 0
     # alerts_sent should still be inserted with delivery_status='failed'
-    insert_call = client.table.return_value.insert.call_args[0][0]
+    insert_call = client.table("alerts_sent").insert.call_args[0][0]
     assert insert_call["delivery_status"] == "failed"
     assert insert_call["error_message"] == "timeout"
 
@@ -370,34 +445,34 @@ def _when() -> datetime:
 
 
 def test_format_stacked_messages_header_clean_emoji_and_label() -> None:
-    msgs = format_stacked_messages([_candidate("BTC", "clean", 1)], "clean", _when())
+    msgs = format_stacked_messages([_item(_candidate("BTC", "clean", 1))], "clean", _when())
     first_line = msgs[0].splitlines()[0]
     assert first_line.startswith("🟢 Clean Candidates — 1")
 
 
 def test_format_stacked_messages_header_ugly_emoji_and_label() -> None:
-    msgs = format_stacked_messages([_candidate("ETH", "ugly", 1)], "ugly", _when())
+    msgs = format_stacked_messages([_item(_candidate("ETH", "ugly", 1))], "ugly", _when())
     first_line = msgs[0].splitlines()[0]
     assert first_line.startswith("🟡 Ugly Candidates — 1")
 
 
 def test_format_stacked_messages_header_includes_timestamp() -> None:
-    msgs = format_stacked_messages([_candidate("BTC", "clean", 1)], "clean", _when())
+    msgs = format_stacked_messages([_item(_candidate("BTC", "clean", 1))], "clean", _when())
     first_line = msgs[0].splitlines()[0]
     assert "(<t:1778728500:R>)" in first_line
 
 
 def test_format_stacked_messages_contains_all_symbols() -> None:
-    candidates = [_candidate("BTC", "clean", 1), _candidate("ETH", "clean", 2)]
-    msgs = format_stacked_messages(candidates, "clean", _when())
+    items = [_item(_candidate("BTC", "clean", 1)), _item(_candidate("ETH", "clean", 2))]
+    msgs = format_stacked_messages(items, "clean", _when())
     combined = "".join(msgs)
     assert "#1 BTC" in combined
     assert "#2 ETH" in combined
 
 
 def test_format_stacked_messages_under_discord_limit() -> None:
-    candidates = [_candidate(f"C{i}", "clean", i + 1) for i in range(10)]
-    msgs = format_stacked_messages(candidates, "clean", _when())
+    items = [_item(_candidate(f"C{i}", "clean", i + 1)) for i in range(10)]
+    msgs = format_stacked_messages(items, "clean", _when())
     for msg in msgs:
         assert len(msg) <= _DISCORD_MAX_CHARS
 
@@ -414,8 +489,8 @@ def test_format_stacked_messages_splits_between_candidates() -> None:
     original = alerter_mod._DISCORD_MAX_CHARS
     try:
         alerter_mod._DISCORD_MAX_CHARS = 300
-        candidates = [_candidate(f"T{i}", "clean", i + 1) for i in range(5)]
-        msgs = format_stacked_messages(candidates, "clean", _when())
+        items = [_item(_candidate(f"T{i}", "clean", i + 1)) for i in range(5)]
+        msgs = format_stacked_messages(items, "clean", _when())
         assert len(msgs) > 1
         # Each message must end with a Stop line (the last line of a block).
         for msg in msgs:
@@ -571,6 +646,7 @@ def _make_useless() -> ScoredCandidate:
 _GOLDEN_BODY = (
     "🟡 Ugly Candidates — 2 (<t:1778728500:R>)\n"
     "\n"
+    "New — 2\n"
     "#1 INJ • Prob 77% • Size 2k-5k\n"
     "• Entry:  4.8883 (Max 4.9620)\n"
     "• Exit:   6.3487 (Profit +30%)\n"
@@ -584,9 +660,84 @@ _GOLDEN_BODY = (
 
 
 def test_format_stacked_messages_matches_golden_output() -> None:
-    msgs = format_stacked_messages([_make_inj(), _make_useless()], "ugly", _when())
+    msgs = format_stacked_messages([_item(_make_inj()), _item(_make_useless())], "ugly", _when())
     assert len(msgs) == 1
     assert msgs[0] == _GOLDEN_BODY
+
+
+# ── New / Updated sections + delta ───────────────────────────────────────────
+
+
+def test_format_delta_up_arrow_for_positive() -> None:
+    assert _format_delta(3.24) == "▲3.2%"
+
+
+def test_format_delta_down_arrow_for_negative() -> None:
+    assert _format_delta(-1.15) == "▼1.1%"
+
+
+def test_format_delta_zero_is_up_arrow() -> None:
+    assert _format_delta(0.0) == "▲0.0%"
+
+
+def test_updated_item_renders_delta_on_title() -> None:
+    items = [_item(_candidate("ETH", "clean", 1), is_update=True, delta_pct=3.2)]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "Updated — 1" in body
+    assert "#1 ETH ▲3.2% •" in body
+
+
+def test_new_item_has_no_delta() -> None:
+    items = [_item(_candidate("BTC", "clean", 1))]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "New — 1" in body
+    assert "▲" not in body
+    assert "▼" not in body
+
+
+def test_new_and_updated_sections_both_present() -> None:
+    items = [
+        _item(_candidate("BTC", "clean", 1)),
+        _item(_candidate("ETH", "clean", 2), is_update=True, delta_pct=1.0),
+    ]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "New — 1" in body
+    assert "Updated — 1" in body
+    # Top header counts New + Updated together.
+    assert body.splitlines()[0].startswith("🟢 Clean Candidates — 2")
+
+
+def test_empty_new_section_omitted_when_only_updates() -> None:
+    items = [_item(_candidate("ETH", "clean", 1), is_update=True, delta_pct=2.0)]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    assert "New —" not in body
+    assert "Updated — 1" in body
+
+
+def test_updated_sorted_by_delta_descending() -> None:
+    items = [
+        _item(_candidate("AAA", "clean", 1), is_update=True, delta_pct=1.0),
+        _item(_candidate("BBB", "clean", 2), is_update=True, delta_pct=5.0),
+        _item(_candidate("CCC", "clean", 3), is_update=True, delta_pct=-2.0),
+    ]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    # Biggest positive first, most negative last.
+    assert body.index("BBB") < body.index("AAA") < body.index("CCC")
+
+
+def test_updated_without_baseline_sorts_last_and_omits_delta() -> None:
+    items = [
+        _item(_candidate("AAA", "clean", 1), is_update=True, delta_pct=2.0),
+        _item(_candidate("NOBASE", "clean", 2), is_update=True, delta_pct=None),
+        _item(_candidate("CCC", "clean", 3), is_update=True, delta_pct=-1.0),
+    ]
+    body = format_stacked_messages(items, "clean", _when())[0]
+    # No-baseline coin sorts to the bottom of Updated.
+    assert body.index("AAA") < body.index("CCC") < body.index("NOBASE")
+    # ...and its title carries no ▲/▼ badge.
+    nobase_title = next(ln for ln in body.splitlines() if "NOBASE" in ln)
+    assert "▲" not in nobase_title
+    assert "▼" not in nobase_title
 
 
 # ── build_embed_payload ─────────────────────────────────────────────────────
@@ -643,8 +794,12 @@ def test_load_alert_config_returns_config_when_set(monkeypatch: pytest.MonkeyPat
     assert cfg.webhook_system is None
 
 
-def test_load_alert_config_uses_strategy_dedup_hours(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Strategy settings override the AlertConfig dedup window default."""
+def test_load_alert_config_uses_strategy_recency_hours(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strategy settings override the AlertConfig recency window default.
+
+    The key name scanner.alert_dedup_hours is retained; its value now feeds
+    AlertConfig.recency_window_hours.
+    """
     from scanner.settings import StrategySettings
 
     monkeypatch.setenv("DISCORD_WEBHOOK_CLEAN", "https://clean.url")
@@ -652,7 +807,7 @@ def test_load_alert_config_uses_strategy_dedup_hours(monkeypatch: pytest.MonkeyP
     strategy = StrategySettings(scanner_alert_dedup_hours=24)
     cfg = load_alert_config(strategy)
     assert cfg is not None
-    assert cfg.dedup_window_hours == 24
+    assert cfg.recency_window_hours == 24
 
 
 def test_load_alert_config_without_strategy_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -661,11 +816,11 @@ def test_load_alert_config_without_strategy_uses_default(monkeypatch: pytest.Mon
     monkeypatch.setenv("DISCORD_WEBHOOK_UGLY", "https://ugly.url")
     cfg = load_alert_config()
     assert cfg is not None
-    assert cfg.dedup_window_hours == 8
+    assert cfg.recency_window_hours == 8
 
 
-def test_run_alerter_uses_configured_dedup_window() -> None:
-    """The cutoff passed to the dedup query reflects AlertConfig.dedup_window_hours."""
+def test_run_alerter_uses_configured_recency_window() -> None:
+    """The cutoff passed to the recency query reflects recency_window_hours."""
     from datetime import UTC, datetime, timedelta
 
     client = _client()
@@ -673,17 +828,17 @@ def test_run_alerter_uses_configured_dedup_window() -> None:
     cfg = AlertConfig(
         webhook_clean=_CFG.webhook_clean,
         webhook_ugly=_CFG.webhook_ugly,
-        dedup_window_hours=24,
+        recency_window_hours=24,
     )
     before = datetime.now(UTC)
     with patch("scanner.alerter._post_to_webhook"):
         run_alerter(client, "run-id", {"BTC": "uuid-btc"}, sel, cfg)
     after = datetime.now(UTC)
 
-    select_chain = client.table.return_value.select.return_value
+    select_chain = client.table("alerts_sent").select.return_value
     eq_chain = select_chain.eq.return_value.eq.return_value.eq.return_value
     gte_call = eq_chain.gte.call_args
-    assert gte_call is not None, "dedup query did not call .gte()"
+    assert gte_call is not None, "recency query did not call .gte()"
     cutoff_iso = gte_call[0][1]
     cutoff = datetime.fromisoformat(cutoff_iso)
     expected_min = before - timedelta(hours=24)
