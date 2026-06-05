@@ -128,7 +128,12 @@ class StrategySettings:
     scanner_min_score_delta_for_rotation: float = 3.0
     """scanner.min_score_delta_for_rotation — stability rule for candidate rotation."""
     scanner_alert_dedup_hours: int = 8
-    """scanner.alert_dedup_hours — re-alert suppression window in hours."""
+    """scanner.alert_dedup_hours — recency window (hours) for New vs Updated.
+
+    A coin alerted within this window shows as Updated (with a price delta);
+    otherwise New. Does not suppress alerts. (Key name retained for DB/UI
+    compatibility; semantics repurposed from the original dedup window.)
+    """
     scanner_stale_run_threshold_hours: int = 6
     """scanner.stale_run_threshold_hours — hours before stale-run system alert fires."""
     scanner_min_trade_size_usd: float = 2000.0

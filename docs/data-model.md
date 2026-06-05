@@ -98,7 +98,7 @@ Status values: `'running' | 'completed' | 'partial' | 'failed' | 'timed_out'` (a
 
 - `webhook_url_hash` — **SHA-256 hex digest only**. Raw URLs never persisted.
 - `delivery_status` — values include `'sent'`, `'failed'`, and `'rate_limited'`
-- Recent successful `alerts_sent` rows are used by the alerter dedup logic to suppress re-alerting the same `asset_id` within the configured window.
+- Recent successful `alerts_sent` rows drive the alerter's New-vs-Updated classification: a coin with a sent `new_candidate` row for the same `asset_id` within the recency window (`scanner.alert_dedup_hours`) renders as **Updated** (with a price delta vs that run's `market_snapshots` spot), otherwise **New**. They no longer suppress re-alerting.
 
 ### `asset_state_history`
 

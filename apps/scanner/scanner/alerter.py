@@ -13,7 +13,7 @@ ugly = amber). See format_stacked_messages for the exact layout.
 
 Public API:
     load_alert_config(strategy)                        -> AlertConfig | None
-    format_stacked_messages(candidates, cat, when_utc) -> list[str]
+    format_stacked_messages(items, cat, when_utc)      -> list[str]
     build_embed_payload(body, category)                -> dict[str, Any]
     run_alerter(client, scan_run_id,
                 asset_id_map, selection_result,
@@ -24,11 +24,14 @@ Environment variables (read by load_alert_config):
     DISCORD_WEBHOOK_UGLY     Required. URL for the #ugly-candidates channel.
     DISCORD_WEBHOOK_SYSTEM   Optional. URL for the #system-alerts channel.
 
-Deduplication:
-    A 'new_candidate' alert is suppressed when alerts_sent already contains
-    a row with delivery_status='sent' for the same asset_id within the last
-    dedup_window_hours (default 8h; loaded from strategy_settings.scanner.
-    alert_dedup_hours when a StrategySettings is passed to load_alert_config).
+Recency classification (New vs Updated):
+    Qualifying coins are never suppressed. A coin is classified 'Updated' when
+    alerts_sent already contains a sent 'new_candidate' row for the same
+    asset_id within the last recency_window_hours (default 8h; loaded from
+    strategy_settings.scanner.alert_dedup_hours when a StrategySettings is
+    passed to load_alert_config), otherwise 'New'. Updated coins show a ▲/▼
+    spot-price delta versus the most recent such alert's market_snapshots
+    price. Scope is per-asset, not per-channel.
 
 Webhook security:
     Actual webhook URLs are never stored in the database. Only a SHA-256
@@ -76,8 +79,14 @@ class AlertConfig:
     webhook_clean: str
     webhook_ugly: str
     webhook_system: str | None = None
-    dedup_window_hours: int = 8
-    """Hours before the same asset can be re-alerted as a new_candidate."""
+    recency_window_hours: int = 8
+    """Lookback window (hours) for classifying an alert as New vs Updated.
+
+    A coin with a prior sent new_candidate alert within this window renders as
+    'Updated' (with a ▲/▼ price delta since that alert); otherwise 'New'.
+    Sourced from the strategy_settings key scanner.alert_dedup_hours. This
+    window no longer suppresses alerts — qualifying coins are always emitted.
+    """
     max_clean_alerts: int = 5
     """Safety cap: at most this many clean alerts per scanner run."""
     max_ugly_alerts: int = 5
@@ -91,7 +100,7 @@ def load_alert_config(strategy: StrategySettings | None = None) -> AlertConfig |
     disables alerting (Stage 8 is logged as skipped, not an error).
 
     When `strategy` is provided, its `scanner_alert_dedup_hours` value
-    overrides the AlertConfig dedup window default. Webhook URLs always
+    overrides the AlertConfig recency window default. Webhook URLs always
     come from environment variables — never from the DB.
     """
     clean = os.getenv("DISCORD_WEBHOOK_CLEAN")
@@ -103,7 +112,7 @@ def load_alert_config(strategy: StrategySettings | None = None) -> AlertConfig |
             webhook_clean=clean,
             webhook_ugly=ugly,
             webhook_system=os.getenv("DISCORD_WEBHOOK_SYSTEM"),
-            dedup_window_hours=strategy.scanner_alert_dedup_hours,
+            recency_window_hours=strategy.scanner_alert_dedup_hours,
         )
     return AlertConfig(
         webhook_clean=clean,
@@ -352,30 +361,65 @@ def build_embed_payload(body: str, category: str) -> dict[str, Any]:
     return {"embeds": [{"description": body, "color": color}]}
 
 
-# ── Deduplication ─────────────────────────────────────────────────────────────
+# ── Recency classification (New vs Updated) ───────────────────────────────────
 
 
-def _is_already_alerted(
+def _last_alert_run_id(
     client: Client,
     asset_id: str,
     cutoff_iso: str,
-) -> bool:
-    """Return True if a successful new_candidate alert was sent recently.
+) -> str | None:
+    """Return the scan_run_id of the most recent sent alert within the window.
 
-    Queries alerts_sent for rows matching (asset_id, new_candidate, sent,
-    sent_at > cutoff). Returns True if any such row exists.
+    Queries alerts_sent for the latest row matching (asset_id, new_candidate,
+    sent, sent_at >= cutoff). Returns its scan_run_id, or None when the asset
+    has no sent alert in the window — i.e. None means 'New', a value means
+    'Updated' and gives the baseline run for the price delta. Scope is
+    per-asset (not per-channel), so a coin that flips Clean↔Ugly still reads
+    as Updated against its most recent alert.
     """
     resp = (
         client.table("alerts_sent")
-        .select("id")
+        .select("scan_run_id")
         .eq("asset_id", asset_id)
         .eq("alert_type", "new_candidate")
         .eq("delivery_status", "sent")
         .gte("sent_at", cutoff_iso)
+        .order("sent_at", desc=True)
+        .limit(1)
         .execute()
     )
     data = cast(list[dict[str, Any]], resp.data or [])
-    return len(data) > 0
+    if not data:
+        return None
+    return cast(str, data[0]["scan_run_id"])
+
+
+def _run_spot(
+    client: Client,
+    scan_run_id: str,
+    asset_id: str,
+) -> float | None:
+    """Return the spot price recorded for (scan_run_id, asset_id), or None.
+
+    Reads market_snapshots.price_usd — the per-run spot used as the baseline
+    for the Updated price delta. None when no snapshot exists for that run
+    (e.g. 90-day retention has expired), in which case the coin renders as
+    Updated without a delta.
+    """
+    resp = (
+        client.table("market_snapshots")
+        .select("price_usd")
+        .eq("scan_run_id", scan_run_id)
+        .eq("asset_id", asset_id)
+        .limit(1)
+        .execute()
+    )
+    data = cast(list[dict[str, Any]], resp.data or [])
+    if not data:
+        return None
+    raw = data[0].get("price_usd")
+    return float(raw) if raw is not None else None
 
 
 # ── Webhook POST ──────────────────────────────────────────────────────────────
@@ -515,8 +559,9 @@ def run_alerter(
     """Send Discord alerts for new clean + ugly candidates.
 
     Per category (clean / ugly):
-        1. Trim to max_n, resolve asset IDs, run dedup check per candidate.
-        2. Format all qualifying candidates as a compact table message.
+        1. Trim to max_n, resolve asset IDs, classify each as New or Updated
+           against the recency window (computing the Updated price delta).
+        2. Format all qualifying candidates into nested New/Updated sections.
         3. POST each message chunk to the webhook (one POST per chunk).
         4. Insert one alerts_sent row per candidate (sent | failed together).
         5. On success: update state → 'alerted'; write state history row.
@@ -529,7 +574,7 @@ def run_alerter(
     Returns:
         Total number of alerts successfully delivered (POSTed + recorded).
     """
-    cutoff = datetime.now(UTC) - timedelta(hours=config.dedup_window_hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=config.recency_window_hours)
     cutoff_iso = cutoff.isoformat()
     total_sent = 0
 
@@ -541,26 +586,31 @@ def run_alerter(
     ) -> int:
         when_utc = datetime.now(UTC)
 
-        to_alert: list[tuple[ScoredCandidate, str]] = []
+        # Classify each qualifying coin as New or Updated via the recency
+        # window — qualifying coins are always emitted, never suppressed.
+        to_alert: list[tuple[AlertItem, str]] = []
         for candidate in candidates[:max_n]:
             asset_id = asset_id_map.get(candidate.symbol)
             if not asset_id:
                 log.warning("run_alerter: no asset_id for %s — skipping", candidate.symbol)
                 continue
-            if _is_already_alerted(client, asset_id, cutoff_iso):
-                log.info(
-                    "%s already alerted within %dh window — skipping",
-                    candidate.symbol,
-                    config.dedup_window_hours,
-                )
+            prior_run_id = _last_alert_run_id(client, asset_id, cutoff_iso)
+            if prior_run_id is None:
+                to_alert.append((AlertItem(candidate=candidate), asset_id))
                 continue
-            to_alert.append((candidate, asset_id))
+            baseline = _run_spot(client, prior_run_id, asset_id)
+            delta: float | None = None
+            if baseline is not None and baseline > 0:
+                delta = (candidate.trade.current_price - baseline) / baseline * 100
+            to_alert.append(
+                (AlertItem(candidate=candidate, is_update=True, delta_pct=delta), asset_id)
+            )
 
         if not to_alert:
             return 0
 
-        category = to_alert[0][0].category
-        items = [AlertItem(candidate=c) for c, _ in to_alert]
+        category = to_alert[0][0].candidate.category
+        items = [item for item, _ in to_alert]
         bodies = format_stacked_messages(items, category, when_utc)
         payloads = [build_embed_payload(body, category) for body in bodies]
         # alerts_sent.payload captures the first message (representative of
@@ -585,7 +635,8 @@ def run_alerter(
                 break
 
         sent = 0
-        for candidate, asset_id in to_alert:
+        for item, asset_id in to_alert:
+            candidate = item.candidate
             _record_alert_sent(
                 client,
                 scan_run_id,
