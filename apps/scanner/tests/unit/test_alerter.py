@@ -811,12 +811,12 @@ def test_load_alert_config_uses_strategy_recency_hours(monkeypatch: pytest.Monke
 
 
 def test_load_alert_config_without_strategy_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When no strategy is passed, the AlertConfig default (8h) is used."""
+    """When no strategy is passed, the AlertConfig default (24h) is used."""
     monkeypatch.setenv("DISCORD_WEBHOOK_CLEAN", "https://clean.url")
     monkeypatch.setenv("DISCORD_WEBHOOK_UGLY", "https://ugly.url")
     cfg = load_alert_config()
     assert cfg is not None
-    assert cfg.recency_window_hours == 8
+    assert cfg.recency_window_hours == 24
 
 
 def test_run_alerter_uses_configured_recency_window() -> None:

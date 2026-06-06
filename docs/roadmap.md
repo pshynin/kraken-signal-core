@@ -16,7 +16,7 @@ The scanner pipeline runs end-to-end on a 6-hour cron via GitHub Actions, writes
 - Runtime-configurable thresholds via `strategy_settings`, with safe Python defaults that mirror migration 0012 seed values.
 - Scan-run lifecycle with `running` → `completed` / `partial` / `failed` / `timed_out` (added in migration 0015).
 - Immutable per-asset audit trail in `asset_state_history`. See [state-machine.md](state-machine.md).
-- Discord delivery log in `alerts_sent` with SHA-256-hashed webhook URLs and an 8-hour recency window driving New-vs-Updated classification.
+- Discord delivery log in `alerts_sent` with SHA-256-hashed webhook URLs and a 24-hour recency window driving New-vs-Updated classification.
 - System-alert webhook for unhandled exceptions and stale-run notices.
 - Docker portability via `apps/scanner/Dockerfile` + `Makefile`.
 
