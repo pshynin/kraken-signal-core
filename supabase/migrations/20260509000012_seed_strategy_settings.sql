@@ -137,7 +137,7 @@ INSERT INTO strategy_settings (setting_key, setting_value, description) VALUES
    'New candidate must outscore an existing top-N candidate by at least this much to rotate it out (stability rule)'),
 
   ('scanner.alert_dedup_hours',
-   '8',
+   '24',
    'Recency window (hours) for New vs Updated alerts: a coin alerted within this window shows as Updated (with a price delta since its last alert); otherwise New. Does not suppress alerts.'),
 
   ('scanner.stale_run_threshold_hours',

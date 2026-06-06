@@ -27,7 +27,7 @@ Environment variables (read by load_alert_config):
 Recency classification (New vs Updated):
     Qualifying coins are never suppressed. A coin is classified 'Updated' when
     alerts_sent already contains a sent 'new_candidate' row for the same
-    asset_id within the last recency_window_hours (default 8h; loaded from
+    asset_id within the last recency_window_hours (default 24h; loaded from
     strategy_settings.scanner.alert_dedup_hours when a StrategySettings is
     passed to load_alert_config), otherwise 'New'. Updated coins show a ▲/▼
     spot-price delta versus the most recent such alert's market_snapshots
@@ -79,7 +79,7 @@ class AlertConfig:
     webhook_clean: str
     webhook_ugly: str
     webhook_system: str | None = None
-    recency_window_hours: int = 8
+    recency_window_hours: int = 24
     """Lookback window (hours) for classifying an alert as New vs Updated.
 
     A coin with a prior sent new_candidate alert within this window renders as

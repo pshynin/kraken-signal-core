@@ -127,7 +127,7 @@ class StrategySettings:
     """scanner.max_ugly_candidates — top-N ugly output."""
     scanner_min_score_delta_for_rotation: float = 3.0
     """scanner.min_score_delta_for_rotation — stability rule for candidate rotation."""
-    scanner_alert_dedup_hours: int = 8
+    scanner_alert_dedup_hours: int = 24
     """scanner.alert_dedup_hours — recency window (hours) for New vs Updated.
 
     A coin alerted within this window shows as Updated (with a price delta);
@@ -295,7 +295,7 @@ def _parse_settings_dict(raw: dict[str, str]) -> StrategySettings:
         scanner_max_clean_candidates=_i(raw, "scanner.max_clean_candidates", 10),
         scanner_max_ugly_candidates=_i(raw, "scanner.max_ugly_candidates", 10),
         scanner_min_score_delta_for_rotation=_f(raw, "scanner.min_score_delta_for_rotation", 3.0),
-        scanner_alert_dedup_hours=_i(raw, "scanner.alert_dedup_hours", 8),
+        scanner_alert_dedup_hours=_i(raw, "scanner.alert_dedup_hours", 24),
         scanner_stale_run_threshold_hours=_i(raw, "scanner.stale_run_threshold_hours", 6),
         scanner_min_trade_size_usd=_f(raw, "scanner.min_trade_size_usd", 2000.0),
         scanner_run_timeout_minutes=_i(raw, "scanner.run_timeout_minutes", 120),
