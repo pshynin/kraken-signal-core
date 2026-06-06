@@ -150,13 +150,13 @@ class AlertItem:
 #   🟢 Clean Candidates — 2 (<t:…:R>)
 #
 #   New — 1
-#   #1 INJ • Prob 77% • Size 2k-5k
+#   #1 **INJ** • Prob 77% • Size 2k-5k
 #   • Entry:  4.8883 (Max 4.9620)
 #   • Exit:   6.3487 (Profit +30%)
 #   • Stop:   4.3385 (Risk -11%)
 #
 #   Updated — 1
-#   #1 ETH ▲3.2% • Prob 70% • Size 5k-10k
+#   #1 **ETH** ▲3.2% • Prob 70% • Size 5k-10k
 #   • Entry:  3200.0 (Max 3250.0)
 #   • Exit:   3800.0 (Profit +19%)
 #   • Stop:   3000.0 (Risk -6%)
@@ -228,13 +228,14 @@ def _format_candidate_block(
     """Build one four-line stacked block for a candidate.
 
     Layout:
-        #R SYM [▲/▼D.D%] • Prob P% • Size BUCKET
+        #R **SYM** [▲/▼D.D%] • Prob P% • Size BUCKET
         • Entry:  <preferred> (Max <max>)
         • Exit:   <exit> (Profit +X%)
         • Stop:   <stop> (Risk -X%)
 
-    `delta_pct` renders a ▲/▼ spot-move badge after the ticker (Updated coins
-    only); when None the ticker is followed directly by the bullet separator.
+    The ticker is wrapped in Discord bold markdown. `delta_pct` renders a ▲/▼
+    spot-move badge after the ticker (Updated coins only); when None the ticker
+    is followed directly by the bullet separator.
 
     Profit % and Risk % are derived from preferred_entry / exit_price /
     stop_loss (geometry) so they cannot drift from the Entry/Exit/Stop
@@ -263,8 +264,9 @@ def _format_candidate_block(
     risk_pct = round((tp.stop_loss - entry) / entry * 100)
 
     delta_str = f" {_format_delta(delta_pct)}" if delta_pct is not None else ""
+    # Ticker is bold (Discord markdown) so the coin anchors each block visually.
     title = (
-        f"#{rank} {candidate.symbol}{delta_str} • "
+        f"#{rank} **{candidate.symbol}**{delta_str} • "
         f"Prob {round(score.probability_pct)}% • "
         f"Size {tp.suggested_size_bucket}"
     )

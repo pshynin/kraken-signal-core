@@ -370,7 +370,7 @@ def test_run_alerter_emits_recent_asset_as_updated() -> None:
     assert count == 1
     body = mock_post.call_args[0][1]["embeds"][0]["description"]
     assert "Updated — 1" in body
-    assert "BTC ▲2.0%" in body
+    assert "**BTC** ▲2.0%" in body
 
 
 def test_run_alerter_updated_without_baseline_omits_delta() -> None:
@@ -466,8 +466,8 @@ def test_format_stacked_messages_contains_all_symbols() -> None:
     items = [_item(_candidate("BTC", "clean", 1)), _item(_candidate("ETH", "clean", 2))]
     msgs = format_stacked_messages(items, "clean", _when())
     combined = "".join(msgs)
-    assert "#1 BTC" in combined
-    assert "#2 ETH" in combined
+    assert "#1 **BTC**" in combined
+    assert "#2 **ETH**" in combined
 
 
 def test_format_stacked_messages_under_discord_limit() -> None:
@@ -532,7 +532,7 @@ def test_candidate_block_title_contains_prob_and_size() -> None:
     """Title line: '#R SYM • Prob P% • Size BUCKET'. No 'Gain' on the title."""
     block = _format_candidate_block(2, _candidate("ETH", "ugly", 2))
     title = block.splitlines()[0]
-    assert title.startswith("#2 ETH")
+    assert title.startswith("#2 **ETH**")
     assert "• Prob " in title
     assert "• Size " in title
     # Bucket value comes through.
@@ -647,12 +647,12 @@ _GOLDEN_BODY = (
     "🟡 Ugly Candidates — 2 (<t:1778728500:R>)\n"
     "\n"
     "New — 2\n"
-    "#1 INJ • Prob 77% • Size 2k-5k\n"
+    "#1 **INJ** • Prob 77% • Size 2k-5k\n"
     "• Entry:  4.8883 (Max 4.9620)\n"
     "• Exit:   6.3487 (Profit +30%)\n"
     "• Stop:   4.3385 (Risk -11%)\n"
     "\n"
-    "#2 USELESS • Prob 69% • Size 2k-5k\n"
+    "#2 **USELESS** • Prob 69% • Size 2k-5k\n"
     "• Entry:  0.05907 (Max 0.05996)\n"
     "• Exit:   0.08342 (Profit +41%)\n"
     "• Stop:   0.05046 (Risk -15%)"
@@ -684,7 +684,7 @@ def test_updated_item_renders_delta_on_title() -> None:
     items = [_item(_candidate("ETH", "clean", 1), is_update=True, delta_pct=3.2)]
     body = format_stacked_messages(items, "clean", _when())[0]
     assert "Updated — 1" in body
-    assert "#1 ETH ▲3.2% •" in body
+    assert "#1 **ETH** ▲3.2% •" in body
 
 
 def test_new_item_has_no_delta() -> None:
