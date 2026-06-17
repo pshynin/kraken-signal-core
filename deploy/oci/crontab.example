@@ -9,7 +9,7 @@
 # Verify:
 #   crontab -l
 #
-# Every 6 hours at :00 UTC. flock (inside momentum-scanner.sh) prevents
+# Every 4 hours at :00 UTC. flock (inside momentum-scanner.sh) prevents
 # overlapping runs; the redundant -n flock here is belt-and-suspenders.
 #
 # NOTE: cron has a minimal PATH. `docker` usually lives in /usr/bin (covered),
@@ -18,4 +18,4 @@
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-0 */6 * * * /usr/bin/flock -n /var/lock/momentum-scanner.cron.lock /opt/momentum-copilot/deploy/oci/momentum-scanner.sh >> /var/log/momentum-scanner.log 2>&1
+0 */4 * * * /usr/bin/flock -n /var/lock/momentum-scanner.cron.lock /opt/momentum-copilot/deploy/oci/momentum-scanner.sh >> /var/log/momentum-scanner.log 2>&1

@@ -205,7 +205,7 @@ export function CandidatesTable({
           </p>
           <p className="text-xs text-muted-foreground max-w-xs text-center">
             Candidates appear here after the scanner identifies qualifying
-            assets. Runs every 6 hours.
+            assets. Runs every 4 hours.
           </p>
         </div>
       ) : (

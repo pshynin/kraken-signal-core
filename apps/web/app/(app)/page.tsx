@@ -220,7 +220,7 @@ function EmptyState() {
       <Clock className="mx-auto h-8 w-8 text-muted-foreground" />
       <p className="text-sm font-medium text-foreground">No scan runs yet</p>
       <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-        The scanner runs every 6 hours via GitHub Actions. Trigger a manual run
+        The scanner runs every 4 hours on the OCI VM. Trigger a manual run
         or wait for the next scheduled execution.
       </p>
     </div>
