@@ -1,0 +1,21 @@
+# crontab.example — FALLBACK scheduler only.
+#
+# The PRIMARY, supported scheduler is the systemd timer
+# (momentum-scanner.timer + momentum-scanner.service). Use cron only if you
+# cannot use systemd on your VM.
+#
+# Install (as the deploy user, e.g. ubuntu):
+#   crontab deploy/oci/crontab.example
+# Verify:
+#   crontab -l
+#
+# Every 6 hours at :00 UTC. flock (inside momentum-scanner.sh) prevents
+# overlapping runs; the redundant -n flock here is belt-and-suspenders.
+#
+# NOTE: cron has a minimal PATH. `docker` usually lives in /usr/bin (covered),
+# but if `docker compose` is not found, set PATH explicitly above the entry.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 */6 * * * /usr/bin/flock -n /var/lock/momentum-scanner.cron.lock /opt/momentum-copilot/deploy/oci/momentum-scanner.sh >> /var/log/momentum-scanner.log 2>&1
