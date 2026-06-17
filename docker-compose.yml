@@ -17,6 +17,13 @@ services:
       - .env
     environment:
       SCANNER_ENV: development
+      # Disable numba JIT — the scanner does not need JIT acceleration, and
+      # leaving it on makes pandas_ta fail at import time in the OCI Docker
+      # runtime ("RuntimeError: cannot cache function 'fibonacci': no locator
+      # available"). A writable cache dir is set as a belt-and-suspenders
+      # fallback in case any dependency still touches the numba cache.
+      NUMBA_DISABLE_JIT: "1"
+      NUMBA_CACHE_DIR: /tmp/numba_cache
     restart: "no"
 
 # ── Optional: Supabase local stack ────────────────────────────────────────────
