@@ -4,7 +4,7 @@ What exists today, what's planned, and what we know is rough. Source of truth fo
 
 ## What Exists Today
 
-The scanner pipeline runs end-to-end on a 6-hour cron via GitHub Actions, writes to Supabase, and pushes Discord alerts. The dashboard is live with five routes. The full numbered PR list (PRs 1–19, 21) is in [README.md](../README.md#implementation-status); below is the grouped, current-state view.
+The scanner pipeline runs end-to-end every 6 hours on an **OCI Always Free VM** (systemd timer), writes to Supabase, and pushes Discord alerts. The dashboard is live with five routes. The full numbered PR list (PRs 1–19, 21) is in [README.md](../README.md#implementation-status); below is the grouped, current-state view.
 
 ### Scanner
 
@@ -18,7 +18,7 @@ The scanner pipeline runs end-to-end on a 6-hour cron via GitHub Actions, writes
 - Immutable per-asset audit trail in `asset_state_history`. See [state-machine.md](state-machine.md).
 - Discord delivery log in `alerts_sent` with SHA-256-hashed webhook URLs and a 24-hour recency window driving New-vs-Updated classification.
 - System-alert webhook for unhandled exceptions and stale-run notices.
-- Docker portability via `apps/scanner/Dockerfile` + `Makefile`.
+- Docker packaging via `apps/scanner/Dockerfile` + `Makefile`; production runtime on the OCI VM via the root `docker-compose.yml`.
 
 ### Dashboard
 
@@ -37,10 +37,12 @@ The scanner pipeline runs end-to-end on a 6-hour cron via GitHub Actions, writes
 
 ### CI / Ops
 
-- `.github/workflows/ci.yml` for PR checks (lint + type-check + build + test).
-- `.github/workflows/scanner.yml` cron `0 */6 * * *` with `concurrency: cancel-in-progress: false` and `workflow_dispatch` manual + dry-run trigger.
+- **Production scheduler is the OCI Always Free VM**, not GitHub Actions. A systemd timer (`deploy/oci/momentum-scanner.timer`) fires every 6 hours; the `oneshot` service plus an `flock` guard prevent overlapping runs, and `RuntimeMaxSec=1800` kills a hung scan. Full runbook in [deploy/oci/README.md](../deploy/oci/README.md).
+- **GitHub Actions is CI/CD only.** `.github/workflows/ci.yml` runs PR checks (lint + type-check + build + test). `.github/workflows/deploy-scanner.yml` SSHes into the VM on push to `main`, fetches/resets the repo, rebuilds the image, and runs a no-side-effect `--help` sanity check — it never runs the scanner and holds no Supabase service-role key.
+- The Supabase service-role key lives only in the VM's `/opt/momentum-copilot/.env`.
+- The old scheduled `scanner.yml` workflow has been **removed**.
 - Stale-run timeout guard at start of each new run.
-- `scan_summary.json` rendered as a GitHub Actions step summary.
+- `scan_summary.json` written each run; visible in `/var/log/momentum-scanner.log` and `journalctl`.
 
 ## Planned
 
@@ -51,6 +53,14 @@ Tracking corresponds to README PRs not yet marked done. Where the work is small 
 | 24 | Denylist / policy exclusion layer | Pending |
 
 PRs 20 (unique-symbol candidate counts), 22 (Discord alert redesign), 23 (8-tier size buckets), and 25 (diagnostics + introspection) shipped — see [CHANGELOG.md](../CHANGELOG.md).
+
+### Ops follow-ups (OCI runtime)
+
+Now that the scheduler runs on the OCI VM, these are the next operational improvements:
+
+- **Health ping / dead-man's switch** — push a heartbeat (e.g. to a healthchecks.io-style monitor) at the end of each successful run so a VM that stops scanning is noticed.
+- **Alert on failed scan** — surface a non-zero scanner exit from the systemd service (e.g. an `OnFailure=` unit posting to the `DISCORD_WEBHOOK_SYSTEM` channel), independent of the scanner's own in-process crash alert.
+- **systemd over cron** — done: systemd timer is the primary scheduler; cron remains only as a documented fallback (`deploy/oci/crontab.example`).
 
 When a PR ships, move it from this table to the "What Exists Today" section above, mark it ✅ in the README table, and add a line to [CHANGELOG.md](../CHANGELOG.md).
 

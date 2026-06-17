@@ -1,0 +1,59 @@
+name: Deploy Scanner (OCI)
+
+# ── Purpose ───────────────────────────────────────────────────────────────────
+# Continuous deployment of scanner CODE to the OCI Always Free VM.
+# This workflow does NOT run the scanner — it only updates the code and rebuilds
+# the image on the VM. Scheduled execution is owned by the systemd timer on the
+# VM (deploy/oci/momentum-scanner.timer). No Supabase or Discord secrets are
+# used here; those live only in the VM's /opt/momentum-copilot/.env.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/scanner/**"
+      - "docker-compose.yml"
+      - "deploy/oci/**"
+      - ".github/workflows/deploy-scanner.yml"
+  workflow_dispatch: {}
+
+# Never run two deploys against the VM at once.
+concurrency:
+  group: deploy-scanner-oci
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to OCI VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.OCI_DEPLOY_HOST }}
+          username: ${{ secrets.OCI_DEPLOY_USER }}
+          key: ${{ secrets.OCI_DEPLOY_SSH_KEY }}
+          port: ${{ secrets.OCI_DEPLOY_PORT || 22 }}
+          command_timeout: 12m
+          script_stop: true
+          # deploy.sh: clone-or-(fetch+reset) origin/main, `docker compose build
+          # scanner`, then `docker compose run --rm scanner --help` as a no-side-
+          # effect sanity check. It does not run a real or dry-run scan.
+          script: |
+            set -euo pipefail
+            APP_DIR="/opt/momentum-copilot"
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+            # Bootstrap the repo (and thus deploy.sh) on first deploy; afterwards
+            # just fast-forward to the pushed commit. We update the checkout here
+            # so the deploy.sh we execute is always the latest one.
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "Repo not found at $APP_DIR — cloning $REPO_URL"
+              git clone --branch main "$REPO_URL" "$APP_DIR"
+            else
+              git -C "$APP_DIR" fetch --prune origin
+              git -C "$APP_DIR" reset --hard origin/main
+            fi
+            cd "$APP_DIR"
+            ./deploy/oci/deploy.sh

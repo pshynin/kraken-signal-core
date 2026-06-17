@@ -11,7 +11,7 @@ End-to-end view of how the scanner produces candidates, how the dashboard surfac
                 │                   └──────────────────────────┘
 ┌─────────────────────────┐         ┌──────────────────────────┐
 │ apps/scanner (Python)   │ writes  │  Supabase Postgres       │
-│ GitHub Actions cron     │────────▶│  (11 tables, migrations) │
+│ OCI VM systemd timer    │────────▶│  (11 tables, migrations) │
 │ every 6 hours           │         │                          │
 └─────────────────────────┘         │                          │
                                     │                          │
@@ -103,15 +103,18 @@ The only client-side data fetching is the settings form (`components/settings/se
 
 ## Scheduling and Concurrency
 
-`.github/workflows/scanner.yml`:
-- Cron `0 */6 * * *` — every 6 hours at :00 UTC.
-- `concurrency: { group: scanner, cancel-in-progress: false }` — queue, never cancel a running scan. This protects DB consistency: a partial write from a cancelled run could leave stale `running` rows.
-- A separate guard, `timeout_stale_scan_runs()`, marks `running` rows as `timed_out` after `scanner.run_timeout_minutes` (default 120) at the start of each new run.
-- `workflow_dispatch` allows manual runs with optional `--dry-run` and environment selection.
+The scheduled scanner runs on an **OCI Always Free VM**, not GitHub Actions. See
+[deploy/oci/README.md](../deploy/oci/README.md) for the full runbook.
+
+- **Scheduler:** systemd timer `momentum-scanner.timer` — `OnCalendar=*-*-* 00/6:00:00`, every 6 hours at :00 UTC, `Persistent=true` to catch ticks missed while the VM was off.
+- **No overlap:** the `oneshot` service won't start a second instance while one is active, and `momentum-scanner.sh` adds an `flock` guard. Equivalent to the old GitHub Actions `concurrency: cancel-in-progress: false` — a partial write from an interrupted run could leave stale `running` rows.
+- **Hung-run guard:** `RuntimeMaxSec=1800` on the service kills a stuck scan (mirrors the old GHA `timeout-minutes: 30`). A separate `timeout_stale_scan_runs()` marks `running` rows as `timed_out` after `scanner.run_timeout_minutes` (default 120) at the start of each new run.
+- **Manual run:** `sudo systemctl start momentum-scanner.service`, or `docker compose run --rm scanner --dry-run` for a side-effect-free run.
+- **CI/CD only on GitHub:** `ci.yml` (PR checks) and `deploy-scanner.yml` (SSH deploy to the VM). GitHub Actions never runs the scanner and never holds the Supabase service-role key.
 
 ## Observability
 
-- **`scan_summary.json`** — written at end of every run; rendered as a GitHub Actions step summary.
+- **`scan_summary.json`** — written at end of every run in the working directory; readable on the VM and surfaced in `/var/log/momentum-scanner.log` / `journalctl -u momentum-scanner.service`.
 - **`scan_runs` table** — one row per run with status (`running` / `completed` / `partial` / `failed` / `timed_out`), counts, and error message. The `candidates_clean` and `candidates_ugly` counts are derived from rows actually persisted to `candidate_recommendations` (via `PersistResult`), so they cannot drift from what the DB holds — see [data-model.md](data-model.md#candidate-counts--canonical-definition).
 - **`asset_state_history`** — immutable per-asset audit trail. See [state-machine.md](state-machine.md).
 - **`ohlcv_candles`** — raw candles for hard-filter-passed assets, deduplicated append (not run-scoped). Persisted so validation tooling can detect fills / stop / target / MAE-MFE at native timeframe granularity instead of the ~6h close approximation from `market_snapshots`. See [data-model.md](data-model.md#ohlcv_candles).

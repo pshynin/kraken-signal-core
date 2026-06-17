@@ -1,0 +1,25 @@
+# momentum-scanner.timer — fires momentum-scanner.service every 6 hours.
+#
+# Primary production scheduler for the OCI VM (replaces the old GitHub Actions
+# cron). OnCalendar fires at 00:00, 06:00, 12:00, 18:00 UTC.
+#
+# Install / enable:
+#   sudo systemctl enable --now momentum-scanner.timer
+#
+# Verify:        systemctl list-timers momentum-scanner.timer
+# Status:        systemctl status momentum-scanner.timer
+# Stop schedule: sudo systemctl disable --now momentum-scanner.timer
+
+[Unit]
+Description=Run the momentum scanner every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+# Run a missed scan as soon as possible after the VM was off/asleep at a tick.
+Persistent=true
+# Small jitter so the run does not hammer Kraken exactly on the hour.
+RandomizedDelaySec=120
+Unit=momentum-scanner.service
+
+[Install]
+WantedBy=timers.target
