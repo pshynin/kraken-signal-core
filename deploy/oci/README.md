@@ -100,6 +100,7 @@ nano /opt/momentum-copilot/.env
 | `SCANNER_ENV` | recommended | set to `production` |
 | `SCANNER_TRIGGERED_BY` | optional | `schedule` |
 | `SCANNER_VERSION` | optional | free-form tag, e.g. `oci` |
+| `SCAN_SUMMARY_PATH` | optional | where `scan_summary.json` is written; defaults to `/tmp/scan_summary.json` (writable in the container). A write failure never fails the scan. |
 
 The root `docker-compose.yml` reads this file via `env_file: .env`.
 

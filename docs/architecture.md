@@ -114,7 +114,7 @@ The scheduled scanner runs on an **OCI Always Free VM**, not GitHub Actions. See
 
 ## Observability
 
-- **`scan_summary.json`** — written at end of every run in the working directory; readable on the VM and surfaced in `/var/log/momentum-scanner.log` / `journalctl -u momentum-scanner.service`.
+- **`scan_summary.json`** — written at end of every run to `SCAN_SUMMARY_PATH` (default `/tmp/scan_summary.json`, which is writable in the Docker/OCI container); readable on the VM and surfaced in `/var/log/momentum-scanner.log` / `journalctl -u momentum-scanner.service`. A write failure is logged but never fails the scan.
 - **`scan_runs` table** — one row per run with status (`running` / `completed` / `partial` / `failed` / `timed_out`), counts, and error message. The `candidates_clean` and `candidates_ugly` counts are derived from rows actually persisted to `candidate_recommendations` (via `PersistResult`), so they cannot drift from what the DB holds — see [data-model.md](data-model.md#candidate-counts--canonical-definition).
 - **`asset_state_history`** — immutable per-asset audit trail. See [state-machine.md](state-machine.md).
 - **`ohlcv_candles`** — raw candles for hard-filter-passed assets, deduplicated append (not run-scoped). Persisted so validation tooling can detect fills / stop / target / MAE-MFE at native timeframe granularity instead of the ~6h close approximation from `market_snapshots`. See [data-model.md](data-model.md#ohlcv_candles).
