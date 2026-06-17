@@ -3,7 +3,7 @@
 # momentum-scanner.sh — production scanner runner for the OCI Always Free VM.
 #
 # Runs exactly one scan via Docker Compose, guarded by flock so two runs can
-# never overlap (a slow scan must finish before the next 6-hour tick starts).
+# never overlap (a slow scan must finish before the next 4-hour tick starts).
 #
 # Invoked by:
 #   - the systemd service `momentum-scanner.service` (preferred), or

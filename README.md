@@ -1,12 +1,12 @@
 # Crypto Momentum Alert Copilot
 
-Decision-support and alerting system for Kraken spot crypto trading. Scans the full Kraken USD-spot universe every 6 hours (on an OCI Always Free VM), ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts for actionable setups.
+Decision-support and alerting system for Kraken spot crypto trading. Scans the full Kraken USD-spot universe every 4 hours (on an OCI Always Free VM), ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts for actionable setups.
 
 > **Not an auto-trader.** Produces ranked candidates with entry / exit / stop / size recommendations for **manual** execution on Kraken spot.
 
 ## What It Does
 
-- Loads the tradable Kraken USD-spot universe on a schedule (every 6 hours, via a systemd timer on an OCI Always Free VM).
+- Loads the tradable Kraken USD-spot universe on a schedule (every 4 hours, via a systemd timer on an OCI Always Free VM).
 - Fetches OHLCV across three timeframes (4h / 1h / 30m) and computes technical indicators.
 - Applies hard filters and a deterministic 9-factor scoring model, producing ranked **Clean** and **Ugly** candidate tables.
 - Computes setup-aware entry, exit, stop, and size recommendations for each candidate.
@@ -66,7 +66,7 @@ See [CLAUDE.md](CLAUDE.md) for contributor and AI-assistant guidance.
 
 ## Status
 
-The scanner pipeline and dashboard are running end-to-end on a 6-hour cron. For shipped history and what's next:
+The scanner pipeline and dashboard are running end-to-end on a 4-hour cron. For shipped history and what's next:
 
 - [`CHANGELOG.md`](CHANGELOG.md) — what has shipped (curated milestones).
 - [`docs/roadmap.md`](docs/roadmap.md) — what's planned and known open issues.

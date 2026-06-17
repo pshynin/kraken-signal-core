@@ -12,7 +12,7 @@ End-to-end view of how the scanner produces candidates, how the dashboard surfac
 ┌─────────────────────────┐         ┌──────────────────────────┐
 │ apps/scanner (Python)   │ writes  │  Supabase Postgres       │
 │ OCI VM systemd timer    │────────▶│  (11 tables, migrations) │
-│ every 6 hours           │         │                          │
+│ every 4 hours           │         │                          │
 └─────────────────────────┘         │                          │
                                     │                          │
 ┌─────────────────────────┐ reads   │                          │
@@ -106,7 +106,7 @@ The only client-side data fetching is the settings form (`components/settings/se
 The scheduled scanner runs on an **OCI Always Free VM**, not GitHub Actions. See
 [deploy/oci/README.md](../deploy/oci/README.md) for the full runbook.
 
-- **Scheduler:** systemd timer `momentum-scanner.timer` — `OnCalendar=*-*-* 00/6:00:00`, every 6 hours at :00 UTC, `Persistent=true` to catch ticks missed while the VM was off.
+- **Scheduler:** systemd timer `momentum-scanner.timer` — `OnCalendar=*-*-* 00/4:00:00`, every 4 hours at :00 UTC, `Persistent=true` to catch ticks missed while the VM was off.
 - **No overlap:** the `oneshot` service won't start a second instance while one is active, and `momentum-scanner.sh` adds an `flock` guard. Equivalent to the old GitHub Actions `concurrency: cancel-in-progress: false` — a partial write from an interrupted run could leave stale `running` rows.
 - **Hung-run guard:** `RuntimeMaxSec=1800` on the service kills a stuck scan (mirrors the old GHA `timeout-minutes: 30`). A separate `timeout_stale_scan_runs()` marks `running` rows as `timed_out` after `scanner.run_timeout_minutes` (default 120) at the start of each new run.
 - **Manual run:** `sudo systemctl start momentum-scanner.service`, or `docker compose run --rm scanner --dry-run` for a side-effect-free run.

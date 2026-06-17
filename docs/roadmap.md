@@ -4,7 +4,7 @@ What exists today, what's planned, and what we know is rough. Source of truth fo
 
 ## What Exists Today
 
-The scanner pipeline runs end-to-end every 6 hours on an **OCI Always Free VM** (systemd timer), writes to Supabase, and pushes Discord alerts. The dashboard is live with five routes. The full numbered PR list (PRs 1–19, 21) is in [README.md](../README.md#implementation-status); below is the grouped, current-state view.
+The scanner pipeline runs end-to-end every 4 hours on an **OCI Always Free VM** (systemd timer), writes to Supabase, and pushes Discord alerts. The dashboard is live with five routes. The full numbered PR list (PRs 1–19, 21) is in [README.md](../README.md#implementation-status); below is the grouped, current-state view.
 
 ### Scanner
 
@@ -37,7 +37,7 @@ The scanner pipeline runs end-to-end every 6 hours on an **OCI Always Free VM** 
 
 ### CI / Ops
 
-- **Production scheduler is the OCI Always Free VM**, not GitHub Actions. A systemd timer (`deploy/oci/momentum-scanner.timer`) fires every 6 hours; the `oneshot` service plus an `flock` guard prevent overlapping runs, and `RuntimeMaxSec=1800` kills a hung scan. Full runbook in [deploy/oci/README.md](../deploy/oci/README.md).
+- **Production scheduler is the OCI Always Free VM**, not GitHub Actions. A systemd timer (`deploy/oci/momentum-scanner.timer`) fires every 4 hours; the `oneshot` service plus an `flock` guard prevent overlapping runs, and `RuntimeMaxSec=1800` kills a hung scan. Full runbook in [deploy/oci/README.md](../deploy/oci/README.md).
 - **GitHub Actions is CI/CD only.** `.github/workflows/ci.yml` runs PR checks (lint + type-check + build + test). `.github/workflows/deploy-scanner.yml` SSHes into the VM on push to `main`, fetches/resets the repo, rebuilds the image, and runs a no-side-effect `--help` sanity check — it never runs the scanner and holds no Supabase service-role key.
 - The Supabase service-role key lives only in the VM's `/opt/momentum-copilot/.env`.
 - The old scheduled `scanner.yml` workflow has been **removed**.
@@ -77,6 +77,6 @@ Set expectations for what this repo intentionally does not do.
 
 - **Auto-trading.** The system produces ranked candidates with entry/exit/stop/size recommendations for **manual** execution. It does not place, cancel, or manage orders. Do not add order-placement endpoints without a separate design discussion.
 - **Multi-exchange support.** Kraken USD-spot only. Adding another exchange would require rethinking the universe loader, the `kraken_pair` identifier, and a lot of currently-implicit assumptions.
-- **Real-time / streaming data.** The pipeline is batch on a 6-hour cron. No websockets, no per-tick scoring.
+- **Real-time / streaming data.** The pipeline is batch on a 4-hour cron. No websockets, no per-tick scoring.
 - **Multi-user accounts.** Single-passcode dashboard + service-role DB access. RLS would need to be enabled and a real auth provider added before this changes.
 - **Holding beyond Day 10.** The trading framework is a fixed 10-day cycle; the scanner's parameter assumptions (stop sizing, exit targets) are tuned for it. Lengthening the horizon means re-tuning, not just changing copy.

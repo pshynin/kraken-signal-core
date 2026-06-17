@@ -4,7 +4,7 @@ The scheduled scanner runs on an **Oracle Cloud Infrastructure (OCI) Always Free
 VM**, not GitHub Actions. This is the production scheduler.
 
 - **Where it runs:** OCI Always Free VM, `/opt/momentum-copilot`, in Docker.
-- **How often:** every 6 hours (00:00 / 06:00 / 12:00 / 18:00 UTC) via a systemd timer.
+- **How often:** every 4 hours (00:00 / 04:00 / 08:00 / 12:00 / 16:00 / 20:00 UTC) via a systemd timer.
 - **What it runs:** `docker compose run --rm scanner` → `python -m scanner.main`.
 - **Where secrets live:** `/opt/momentum-copilot/.env` on the VM only. The
   Supabase service-role key is **never** stored in GitHub Actions.

@@ -4,7 +4,7 @@ Guidance for Claude Code (and any AI assistant) working in this repository.
 
 ## What This Is
 
-Decision-support and alerting system for Kraken spot crypto trading. Scans the full Kraken USD-spot universe every 6 hours, ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts. **Not an auto-trader** — humans place the orders.
+Decision-support and alerting system for Kraken spot crypto trading. Scans the full Kraken USD-spot universe every 4 hours, ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts. **Not an auto-trader** — humans place the orders.
 
 ## Stack
 
