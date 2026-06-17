@@ -117,6 +117,14 @@ docker compose run --rm scanner --help
 docker compose run --rm scanner --dry-run
 ```
 
+> **numba / pandas_ta import crash:** the root `docker-compose.yml` sets
+> `NUMBA_DISABLE_JIT=1` and `NUMBA_CACHE_DIR=/tmp/numba_cache` on the scanner
+> service. Without this, `pandas_ta` fails at import time in the Docker runtime
+> with `RuntimeError: cannot cache function 'fibonacci': no locator available`.
+> The scanner does not need numba JIT acceleration, so JIT is disabled by
+> default — no `.env` change is required. These are baked into compose; you do
+> not need to add them to the VM `.env`.
+
 ## 6. Configure the systemd timer (primary scheduler)
 
 ```bash

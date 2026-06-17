@@ -16,6 +16,13 @@ services:
       dockerfile: Dockerfile
     image: kraken-scanner:local
     env_file: .env           # copy .env.example → .env and fill in secrets
+    environment:
+      # Disable numba JIT — the scanner does not need JIT acceleration, and
+      # leaving it on makes pandas_ta fail at import time in Docker
+      # ("RuntimeError: cannot cache function 'fibonacci': no locator
+      # available"). NUMBA_CACHE_DIR is a writable-dir fallback.
+      NUMBA_DISABLE_JIT: "1"
+      NUMBA_CACHE_DIR: /tmp/numba_cache
     restart: "no"            # one-shot job — not a long-running service
     network_mode: bridge
     logging:
