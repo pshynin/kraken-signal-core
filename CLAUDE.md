@@ -12,7 +12,7 @@ Decision-support and alerting system for Kraken spot crypto trading. Scans the f
 - **Web:** Next.js 15 (App Router, React 19), TypeScript 5.7, Tailwind, Supabase JS
 - **DB:** Supabase Postgres; migrations via Supabase CLI
 - **Tooling:** pnpm 9 workspaces, ruff, mypy, pytest, ESLint
-- **Runtime:** GitHub Actions cron (scanner), Vercel (web), Docker (scanner portability)
+- **Runtime:** OCI Always Free VM systemd timer (scheduled scanner), Vercel (web), Docker (scanner packaging). GitHub Actions is CI/CD only — it deploys scanner code to the VM over SSH and never runs the scanner.
 
 ## Architecture
 
@@ -47,7 +47,9 @@ kraken-signal-core/
 ├── supabase/
 │   └── migrations/           Versioned Postgres schema; `supabase db push`
 ├── .github/
-│   └── workflows/            CI checks + scheduled scanner cron
+│   └── workflows/            CI checks + deploy scanner code to OCI VM (no scheduled scanner)
+├── deploy/
+│   └── oci/                  OCI VM runtime: systemd timer/service, runner, deploy script, runbook
 └── docs/                     Long-form documentation (see index below)
 ```
 
@@ -63,5 +65,6 @@ Read the relevant doc before making non-trivial changes in that area. If code, t
 | [docs/entry-engine.md](docs/entry-engine.md) | Changing setup classification (`pullback` / `breakout_trigger` / `reclaim`), entry anchors, or validity gates in `selector.py` / `entry_engine.py` |
 | [docs/state-machine.md](docs/state-machine.md) | Touching `state_machine.py`, asset lifecycle states, or `asset_state_history` writes |
 | [docs/local-dev.md](docs/local-dev.md) | Setting up the project, running scanner/web/DB/Docker locally, running tests, or debugging env issues |
+| [deploy/oci/README.md](deploy/oci/README.md) | Deploying/operating the scheduled scanner on the OCI VM, the systemd timer, the SSH deploy workflow, or VM secrets/logs |
 | [docs/roadmap.md](docs/roadmap.md) | Planning new work, checking what's shipped vs pending, or scoping a PR |
 | [CHANGELOG.md](CHANGELOG.md) | Recording or reviewing what changed and when |

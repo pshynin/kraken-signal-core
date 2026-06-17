@@ -82,7 +82,7 @@ make dry-run
 make logs
 ```
 
-`make build` builds the `kraken-scanner:local` image. `make run` runs one scan reading `.env`. `make dry-run` runs `--dry-run` (no DB writes, no Discord). `make logs` tails logs from the last container. Equivalent to GitHub Actions' run shape — useful for verifying portability.
+`make build` builds the `kraken-scanner:local` image. `make run` runs one scan reading `.env`. `make dry-run` runs `--dry-run` (no DB writes, no Discord). `make logs` tails logs from the last container. This mirrors the OCI VM production run shape (`docker compose run --rm scanner`) — useful for verifying portability. For deploying and scheduling the scanner on the VM, see [deploy/oci/README.md](../deploy/oci/README.md).
 
 ## Dashboard Workflow
 
@@ -137,4 +137,4 @@ Adding a migration:
 
 ## Environment Reference
 
-Single source of truth: `/.env.example` at the repo root. Full list and per-service expectations live there. See also the README's "Environment Variables" section for the GitHub Actions + Vercel split.
+Single source of truth: `/.env.example` at the repo root. Full list and per-service expectations live there. The scanner's production runtime env (on the OCI VM) is documented in [deploy/oci/.env.example](../deploy/oci/.env.example) and [deploy/oci/README.md](../deploy/oci/README.md) — note the Supabase service-role key lives only in the VM's `.env`, never in GitHub Actions.

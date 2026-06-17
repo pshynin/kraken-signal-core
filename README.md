@@ -1,12 +1,12 @@
 # Crypto Momentum Alert Copilot
 
-Decision-support and alerting system for Kraken spot crypto trading. Scans the full Kraken USD-spot universe every 6 hours, ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts for actionable setups.
+Decision-support and alerting system for Kraken spot crypto trading. Scans the full Kraken USD-spot universe every 6 hours (on an OCI Always Free VM), ranks candidates for a fixed 10-day trading cycle, and delivers Discord alerts for actionable setups.
 
 > **Not an auto-trader.** Produces ranked candidates with entry / exit / stop / size recommendations for **manual** execution on Kraken spot.
 
 ## What It Does
 
-- Loads the tradable Kraken USD-spot universe on a schedule (every 6 hours, via GitHub Actions cron).
+- Loads the tradable Kraken USD-spot universe on a schedule (every 6 hours, via a systemd timer on an OCI Always Free VM).
 - Fetches OHLCV across three timeframes (4h / 1h / 30m) and computes technical indicators.
 - Applies hard filters and a deterministic 9-factor scoring model, producing ranked **Clean** and **Ugly** candidate tables.
 - Computes setup-aware entry, exit, stop, and size recommendations for each candidate.
@@ -27,7 +27,7 @@ See [docs/architecture.md](docs/architecture.md) for the 8-stage pipeline, the c
 - **Web** — Next.js 15 (App Router, React 19), TypeScript 5.7, Tailwind, Supabase JS.
 - **DB** — Supabase Postgres; migrations via the Supabase CLI.
 - **Tooling** — pnpm 9 workspaces, ruff, mypy, pytest, ESLint.
-- **Runtime** — GitHub Actions cron (scanner), Vercel (web), Docker (scanner portability).
+- **Runtime** — OCI Always Free VM systemd timer (scheduled scanner), Vercel (web), Docker (scanner packaging). GitHub Actions is CI/CD only.
 
 ## Quickstart
 
@@ -57,7 +57,8 @@ apps/scanner/             Python scanner pipeline (core logic)
 apps/web/                 Next.js 15 read-only dashboard
 packages/shared-types/    TS contracts mirroring scanner models.py
 supabase/migrations/      Versioned Postgres schema
-.github/workflows/        CI + scheduled scanner cron
+deploy/oci/               OCI VM scanner runtime (systemd timer/service, deploy script, runbook)
+.github/workflows/        CI + deploy scanner code to OCI VM (no scheduled scanner)
 docs/                     Long-form documentation
 ```
 
@@ -80,6 +81,7 @@ The scanner pipeline and dashboard are running end-to-end on a 6-hour cron. For 
 | [docs/entry-engine.md](docs/entry-engine.md) | Setup classification, anchors, validity gates, stop/exit/size logic |
 | [docs/state-machine.md](docs/state-machine.md) | Asset lifecycle states, transitions, alert trigger conditions |
 | [docs/local-dev.md](docs/local-dev.md) | Prerequisites, setup, test workflow, Supabase workflow, common issues |
+| [deploy/oci/README.md](deploy/oci/README.md) | OCI VM scanner runtime: bootstrap, systemd timer, SSH deploy, secrets, logs, rollback |
 | [docs/roadmap.md](docs/roadmap.md) | What exists, what's planned, known gaps, out-of-scope |
 | [CLAUDE.md](CLAUDE.md) | Guidance for AI assistants working in this repo |
 
