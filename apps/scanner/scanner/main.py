@@ -51,6 +51,7 @@ def _write_summary(path: str, data: dict) -> None:  # type: ignore[type-arg]
     try:
         with open(path, "w") as f:
             json.dump(data, f)
+        logging.getLogger(__name__).info("Wrote scan summary to %s", path)
     except Exception as exc:
         logging.getLogger(__name__).error(
             "Failed to write %s: %s — scan run itself was unaffected", path, exc
@@ -321,7 +322,7 @@ def main(dry_run: bool = False) -> int:
     summary_clean = candidates_clean_persisted if _persist_ok else len(selection_result.clean)
     summary_ugly = candidates_ugly_persisted if _persist_ok else len(selection_result.ugly)
     _write_summary(
-        "scan_summary.json",
+        os.environ.get("SCAN_SUMMARY_PATH", "/tmp/scan_summary.json"),
         {
             "status": "completed" if _persist_ok or dry_run else "partial",
             "dry_run": dry_run,
